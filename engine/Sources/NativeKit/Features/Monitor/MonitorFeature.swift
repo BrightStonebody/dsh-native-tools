@@ -68,6 +68,7 @@ final class MonitorFeature: NSObject, NativeFeature {
         payload["itemFrames"] = menuBar?.frames() ?? [:]
         payload["itemLines"] = menuBar?.lines() ?? [:]
         payload["panelFrame"] = panel.frame()
+        payload["itemMetrics"] = menuBar?.metrics() ?? [:]
         return payload
     }
 

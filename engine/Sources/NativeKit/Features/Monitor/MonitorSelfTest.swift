@@ -296,12 +296,15 @@ enum MonitorSelfTest {
 
         // MARK: App 图标
 
-        // 自测进程是命令行可执行文件、没有 bundle → 按设计不给图标（面板那格留空）。
+        // 自测进程自己：跑在 .app 里就有图标（规则②），跑在临时目录的命令行二进制就没有。
+        // 这条按「规则」断言，而不是按「在哪跑」断言 —— 打包后的 helper 就在 .app 里面。
+        let ownPath = MonitorAppIcon.shared.executablePathForTesting(pid: getpid()) ?? ""
         let ownIcon = MonitorAppIcon.shared.icon(for: getpid())
+        let ownExpected = ownPath.contains(".app/Contents/")
         record(
-            "app-icon-none-for-cli",
-            ownIcon == nil,
-            ownIcon == nil ? "no icon for unbundled binary" : "unexpected icon"
+            "app-icon-own-rule",
+            (ownIcon != nil) == ownExpected,
+            "path \(ownPath) → \(ownIcon == nil ? "no icon" : "icon") (expected \(ownExpected ? "icon" : "no icon"))"
         )
         // launchd 同样没有归属 App。
         let launchdIcon = MonitorAppIcon.shared.icon(for: 1)
@@ -319,12 +322,13 @@ enum MonitorSelfTest {
             finderBundleIcon != nil && (finderBundleIcon?.size.width ?? 0) > 0,
             finderBundleIcon.map { "icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil (finder pid \(finderPid.map(String.init) ?? "?"))"
         )
-        // 自测进程自己不在 .app 里 → 兜底链也应该返回 nil（守护进程同理，这是「空白方块」的源头）。
-        let cliBundleIcon = MonitorAppIcon.shared.bundleIconForTesting(pid: getpid())
+        // 反过来：不在任何 .app 里的可执行文件（launchd 在 /sbin）→ 兜底链必须返回 nil，
+        // 否则面板上就是那个「空白方块」。
+        let launchdBundleIcon = MonitorAppIcon.shared.bundleIconForTesting(pid: 1)
         record(
             "app-icon-no-bundle-fallback",
-            cliBundleIcon == nil,
-            MonitorAppIcon.shared.executablePathForTesting(pid: getpid()).map { "path \($0)" } ?? "no path"
+            launchdBundleIcon == nil,
+            MonitorAppIcon.shared.executablePathForTesting(pid: 1).map { "path \($0)" } ?? "no path"
         )
         // 真 App（有 bundle 的进程，比如 Finder / DSH 自己）必须拿到图标，并且是缓存同一个实例。
         let bundledApp = NSWorkspace.shared.runningApplications.first {

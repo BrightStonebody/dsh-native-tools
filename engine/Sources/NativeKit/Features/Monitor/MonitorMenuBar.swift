@@ -22,6 +22,9 @@ final class MonitorMenuBar: NSObject {
     private static let imageHeight: CGFloat = 23
 
     private var entries: [Entry] = []
+    /// 图片宽度**跟着文字走**（`variableLength` 下系统按自己的规则加左右内边距，
+    /// 三个控件与别的菜单栏图标间距一致）。数字位数变化会让按钮轻微变宽变窄，
+    /// 面板不再跟着漂 —— 那是 `MonitorPanelController` 的固定锚点负责的。
     private var settings: MonitorSettings
     var onSelect: ((MonitorMetric, NSStatusBarButton) -> Void)?
 
@@ -53,9 +56,8 @@ final class MonitorMenuBar: NSObject {
                 button.action = #selector(handleClick(_:))
                 button.toolTip = "DSH 原生助手 · \(metric.title)"
             }
-            // 宽度按「最坏情况」定死（`100%` / `↓999M`），数字位数变化时按钮不抖。
-            let sample = MonitorFormat.menuWidthSample(metric: metric, detailed: settings.networkDetailed)
-            item.length = Self.imageWidth(top: sample.top, bottom: sample.bottom)
+            // 长度交给系统（`variableLength`）→ 左右内边距和别的菜单栏图标一模一样；
+            // 长度交给系统；数字变化带来的宽度抖动由面板的固定锚点吸收。
             item.isVisible = isEnabled(metric)
             entries.append(
                 Entry(metric: metric, item: item, top: "", bottom: "")
@@ -97,7 +99,11 @@ final class MonitorMenuBar: NSObject {
             }
             entries[index].top = lines.top
             entries[index].bottom = lines.bottom
-            entries[index].item.button?.image = Self.image(top: lines.top, bottom: lines.bottom)
+            entries[index].item.button?.image = Self.image(
+                top: lines.top,
+                bottom: lines.bottom,
+                width: Self.imageWidth(top: lines.top, bottom: lines.bottom)
+            )
             entries[index].item.button?.toolTip = Self.tooltip(metric: metric, lines: lines)
         }
     }
@@ -123,11 +129,12 @@ final class MonitorMenuBar: NSObject {
             textSize(top, font: topFont).width,
             textSize(bottom, font: bottomFont).width
         )
-        return ceil(width) + 4
+        return ceil(width)
     }
 
-    private static func image(top: String, bottom: String) -> NSImage {
-        let size = NSSize(width: imageWidth(top: top, bottom: bottom), height: imageHeight)
+    private static func image(top: String, bottom: String, width: CGFloat) -> NSImage {
+        let width = max(width, imageWidth(top: top, bottom: bottom))
+        let size = NSSize(width: width, height: imageHeight)
         let topAttributes = attributes(font: topFont)
         let bottomAttributes = attributes(font: bottomFont)
         let image = NSImage(size: size, flipped: true) { rect in
@@ -150,6 +157,21 @@ final class MonitorMenuBar: NSObject {
         return image
     }
 
+    /// 自测/排查用：每项图片宽度、按钮宽度、item 长度（看「和系统图标间距不一样」是谁的锅）。
+    func metrics() -> [String: [String: Double]] {
+        var result: [String: [String: Double]] = [:]
+        for entry in entries {
+            let image = entry.item.button?.image?.size.width ?? 0
+            let frame = entry.item.button?.window?.frame ?? .zero
+            result[entry.metric.rawValue] = [
+                "imageWidth": Double(image),
+                "buttonWidth": Double(frame.width),
+                "length": Double(entry.item.length),
+            ]
+        }
+        return result
+    }
+
     /// 文档/自测用：把三项按菜单栏的样子拼成一张位图（深色底 + 白色字），
     /// 不创建真正的 status item，所以可以在自测里安全调用。
     static func stripImage(totals: MonitorTotals, settings: MonitorSettings) -> NSImage? {
@@ -162,7 +184,7 @@ final class MonitorMenuBar: NSObject {
         }
         guard !metrics.isEmpty else { return nil }
 
-        let gap: CGFloat = 10
+        let gap: CGFloat = 9
         let inset: CGFloat = 8
         var images: [(NSImage, NSSize)] = []
         var totalWidth = inset * 2 + gap * CGFloat(metrics.count - 1)
@@ -172,7 +194,12 @@ final class MonitorMenuBar: NSObject {
                 totals: totals,
                 detailed: settings.networkDetailed
             )
-            let image = Self.image(top: lines.top, bottom: lines.bottom)
+            let sample = MonitorFormat.menuWidthSample(metric: metric, detailed: settings.networkDetailed)
+            let image = Self.image(
+                top: lines.top,
+                bottom: lines.bottom,
+                width: Self.imageWidth(top: sample.top, bottom: sample.bottom)
+            )
             images.append((image, image.size))
             totalWidth += image.size.width
         }

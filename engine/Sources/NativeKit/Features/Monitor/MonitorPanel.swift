@@ -177,12 +177,36 @@ final class MonitorPanelController {
     private let view = MonitorPanelView()
     private(set) var visibleMetric: MonitorMetric?
 
+    /// 面板的锚点：一个看不见的 1×1 无边框窗口，显示时钉在按钮**当时的屏幕位置**。
+    ///
+    /// 为什么不用按钮本身当锚点：菜单栏按钮的宽度会跟着数字位数变（`9%` → `100%`），
+    /// 相邻项变宽也会把它挤动，popover 锚在按钮上就会跟着一起挪 —— 用户看到的
+    /// 「面板过一会儿往左下漂」就是这个。锚点窗口自己不动，按钮怎么变面板都不动。
+    private let anchorWindow: NSWindow = {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+        window.level = .statusBar
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        window.isReleasedWhenClosed = false
+        return window
+    }()
+    private let anchorView = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+
     init() {
         let controller = NSViewController()
         controller.view = view
         popover.contentViewController = controller
         popover.behavior = .transient
         popover.animates = false
+        anchorWindow.contentView = anchorView
     }
 
     var isVisible: Bool { popover.isShown }
@@ -210,7 +234,20 @@ final class MonitorPanelController {
         view.rows = rows
         view.subtitle = subtitle
         resize()
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        if let screen = Self.screenRect(of: button) {
+            anchorWindow.setFrame(
+                NSRect(x: screen.midX - 0.5, y: screen.minY, width: 1, height: 1),
+                display: false
+            )
+            anchorWindow.orderFront(nil)
+        }
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+    }
+
+    /// 按钮在屏幕坐标系里的矩形（用它算锚点位置，之后按钮再动也不影响）。
+    private static func screenRect(of button: NSStatusBarButton) -> NSRect? {
+        guard let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
     }
 
     func apply(rows: [MonitorRow], subtitle: String) {
@@ -223,6 +260,7 @@ final class MonitorPanelController {
     func hide() {
         guard popover.isShown else { return }
         popover.performClose(nil)
+        anchorWindow.orderOut(nil)
         visibleMetric = nil
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-tools",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "private": true,
   "type": "module",
   "description": "Harness 的原生助手四合一：截图（拖框、工具条、红框标注、文字识别）、剪贴板历史、划词翻译、系统监控（菜单栏网络/CPU/内存三个图标 + 点看进程排名）。四个功能跑在同一个 AppKit 进程里，各自可在插件页单独开关。",
