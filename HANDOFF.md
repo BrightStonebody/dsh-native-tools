@@ -81,7 +81,7 @@ $NODE host-test/live-toggle.mjs    # maxItems 热生效、关掉后进程退出
 $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、改热键、同进程换功能
 ```
 
-当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 57 项，全过；helper md5 `c38c343987f502a2fa861cc0df697a62`，`lipo -archs` = `x86_64 arm64`。
+当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 57 项，全过；helper md5 `cc21d5547f3c91620f3e8fd5e5982824`，`lipo -archs` = `x86_64 arm64`。
 
 安装（本机）：`plugin_manager install_bundle`，target 用 `link:/Users/a1/Documents/deepseek-harness/default-workspace/dsh-native-tools`。装好后 entryId 是 `include:dsh-native-tools`（`list_plugins` 要 offset=200 才看得到，总数 238）。
 
@@ -119,11 +119,13 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 ## 发布（GitHub / 插件市场）
 
 - 仓库：<https://github.com/BrightStonebody/dsh-native-tools>（public，topics 含 `dsh-plugin`）
-- Release `v2.1.4`（系统监控：网速文案预留固定宽度，不再抖动）：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.1.4.tgz` + `.zip`
-- 更早：`v2.1.3`（间距对齐系统图标）、`v2.1.2`（图标规则收紧）、`v2.1.1`（两行菜单栏 / App 图标 / 修漂移）、`v2.1.0`（新增系统监控）
+- Release `v2.1.5`（系统监控：面板可关闭 + ✕ 按钮）：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.1.5.tgz` + `.zip`
+- 更早：`v2.1.4`（网速控件预留宽度防抖）、`v2.1.3`（间距对齐系统图标）、`v2.1.2`（图标规则收紧）、`v2.1.1`（两行菜单栏 / App 图标 / 修漂移）、`v2.1.0`（新增系统监控）
 - 收录条目：`submission/BrightStonebody__dsh-native-tools.yml`（`category: tools`，`icon` 用 GitHub 托管的 PNG，`tarball` 用 Release 稳定链接）
 - 打包/发布脚本（不在仓库里，在工作区根）：`publish-dsh-native-tools.sh`（建仓→推送→topics→Release）、`submit-listing.sh`（fork→放条目→开 PR）
 - 市场收录规则里容易踩的：`package.json` 必须声明 `dsh.bundle`（只写 `dsh.client` 会被拒）；仓库要公开且**创建满 1 天**（没有提交数门槛）；条目文件必须是 `data/plugins/<owner>__<repo>.yml`（只深一层）；`icon` 只认 GitHub 托管的位图（SVG 被拒）；`description.en` 必填且单行。`dshmarket` 只是个客户端，不收条目。
+
+23. **`NSPopover` 的 `.transient` 在我们这种组合下关不掉，得自己收**（系统监控，2026-11-16）：app 是 `accessory`、popover 锚在一个自建的 1×1 锚点窗口上，实测「点桌面」不会关闭（用户第一反应就是「怎么关？」）。做法：`MonitorPanelController` 在 `show()` 里装全局鼠标监听（`NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown])`，鼠标全局监听**不需要辅助功能权限**），点到 popover 外就 `hide()`；`hide()` 里记得 `NSEvent.removeMonitor`。收起后紧接着的那次菜单栏按钮点击也会被同一个监听吞掉，所以用 `lastHiddenAt`（0.35 s 窗口）+ `lastHiddenMetric` 区分：点的是刚关掉的图标 → 保持关闭，点的是另一个 → 切换过去。面板右上角还有一个 ✕，但**视图必须 `acceptsFirstMouse` 返回 true**，否则面板不是 key window，第一次点击只激活窗口、事件不投递，✕ 点不动。Esc 不可靠（accessory 进程拿不到本地键盘事件，全局键盘监听要辅助功能权限），页脚文案因此不提 Esc。
 
 ## 未完成 / 待办
 
@@ -132,7 +134,7 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 2. ~~三个旧目录~~ **已删（2026-11-15）**：`dsh-screenshot` / `dsh-clipboard` / `dsh-translate`（含 `helper.retired/`、旧 engine、旧 dist）整体删除；唯二不重复的东西先搬进 `dsh-native-tools/design/`（`icon-1024.png` + `icon.iconset`，图标源文件）。工作区根目录残留的旧独立包 `dsh-clipboard-macos-universal.zip`（`dsh-clipboard/` 112 个文件，含 `__MACOSX/` 垃圾）同日一并删除——它是合并前那个单功能包的构建产物，功能已被 `dsh-native-tools` 覆盖。旧目录里没有 dsh-native-tools 缺的东西：docs 图片更旧、engine 源码与 locale 都是被合并后的副本。
 3. **待优化（可选）**：单进程 RSS ≈ 45 MB，合并前三个进程合计 ≈ 26 MB —— 省的是重复代码与进程数，不是内存。若在意，可把 OCR 模型改成按需热身。
 4. **待提交收录 PR（2026-11-16 16:00 之后）**：列表仓库 CI 的硬门槛是「仓库创建满 1 天」，`BrightStonebody/dsh-native-tools` 创建于 2026-11-15 16:00:45 (+08)，所以 11-16 16:00 之后才能提。分支**已经推好在 fork 上**：`BrightStonebody/awesome-dsh-plugin` 的 `add-dsh-native-tools`（commit `e8dcadf`，只加 `data/plugins/BrightStonebody__dsh-native-tools.yml`）。到点后跑 `bash …/default-workspace/submit-listing.sh`，或者手工 `gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --head BrightStonebody:add-dsh-native-tools`。注意 `gh` 需要走代理 `HTTPS_PROXY=http://127.0.0.1:7897`（直连 github.com:443 超时），`git push` 走 SSH 不需要。
-5. ~~版本号~~ **2.1.4（2026-11-16）**：`dist/dsh-native-tools-2.1.4.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个控件 + 点开看进程排名；坑 19–22）→ **2.1.1 系统监控改版**（2.1.2 又收紧了图标规则：只给真归属 App 的进程画图标）：菜单栏改成「上标签 / 下数字」两行、网络只留 ↑↓ 上下叠加、字号加大；面板每行加进程所属 App 的图标；修掉「面板过一会儿往左下漂」（按钮宽度与面板高度都钉死，见坑 19/20）。**2.1.3 改回 `variableLength` 让间距对齐系统图标**（墨迹间隙 23.0pt vs 19–24.5pt），**2.1.4 再把画布宽度按最坏样本钉住**（网速文案在 0B/512B/1024B/999M 之间跳，实测三项宽度恒为 53/53/68pt），防漂移靠面板固定锚点（坑 19/20）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 57 全过。
+5. ~~版本号~~ **2.1.5（2026-11-16）**：`dist/dsh-native-tools-2.1.5.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个控件 + 点开看进程排名；坑 19–22）→ **2.1.1 系统监控改版**（2.1.2 又收紧了图标规则：只给真归属 App 的进程画图标）：菜单栏改成「上标签 / 下数字」两行、网络只留 ↑↓ 上下叠加、字号加大；面板每行加进程所属 App 的图标；修掉「面板过一会儿往左下漂」（按钮宽度与面板高度都钉死，见坑 19/20）。**2.1.3 改回 `variableLength` 让间距对齐系统图标**（墨迹间隙 23.0pt vs 19–24.5pt），**2.1.4 再把画布宽度按最坏样本钉住**、**2.1.5 面板可关闭**（全局鼠标监听 + ✕，坑 23）（网速文案在 0B/512B/1024B/999M 之间跳，实测三项宽度恒为 53/53/68pt），防漂移靠面板固定锚点（坑 19/20）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 57 全过。
 
 ## 验证一次是否还健康
 

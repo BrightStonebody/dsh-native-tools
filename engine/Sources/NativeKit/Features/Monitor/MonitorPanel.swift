@@ -18,6 +18,11 @@ final class MonitorPanelView: NSView {
     var subtitle: String = "" {
         didSet { needsDisplay = true }
     }
+    /// 右上角的 ✕：点它收面板（菜单栏图标点了没反应时也有个明摆着的出口）。
+    var onClose: (() -> Void)?
+    private var closeRect: NSRect {
+        NSRect(x: Self.width - Self.padding - 16, y: 8, width: 20, height: 20)
+    }
     /// 固定留这么多行的高度：面板高度不随「这拍有几个进程」变化，
     /// 否则 NSPopover 每拍都重设 contentSize，视觉上就像面板在往左下漂。
     var slotCount: Int = 8 {
@@ -68,6 +73,16 @@ final class MonitorPanelView: NSView {
                 withAttributes: subtitleAttributes
             )
         }
+
+        // 右上角 ✕
+        let crossAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        ("✕" as NSString).draw(
+            in: NSRect(x: closeRect.minX, y: closeRect.minY + 3, width: 20, height: 16),
+            withAttributes: crossAttributes
+        )
 
         if rows.isEmpty {
             ("正在采样…" as NSString).draw(
@@ -164,10 +179,23 @@ final class MonitorPanelView: NSView {
             y += Self.rowHeight
         }
 
-        ("即时值 · 每秒刷新 · CPU 100% = 一个核心" as NSString).draw(
+        ("即时值 · 每秒刷新 · CPU 100% = 一个核心 · 再点图标或点空白处关闭" as NSString).draw(
             at: NSPoint(x: Self.padding, y: y + 2),
             withAttributes: captionAttributes
         )
+    }
+
+    /// 面板不是 key window（app 是 accessory、也没抢焦点），第一次点击只会「激活窗口」而不投递事件，
+    /// 所以必须让视图接受首次点击，✕ 才点得动。
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if closeRect.insetBy(dx: -4, dy: -4).contains(point) {
+            onClose?()
+            return
+        }
+        super.mouseDown(with: event)
     }
 }
 
@@ -199,6 +227,15 @@ final class MonitorPanelController {
         return window
     }()
     private let anchorView = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+    /// 全局鼠标监听：`.transient` 在「由后台 accessory 进程弹出、锚在另一个窗口」这套组合下
+    /// 不可靠（实测点桌面不会关），所以自己判：点到面板外面就收起来。
+    private var globalMonitor: Any?
+    private var localMonitor: Any?
+    /// 刚因为「点了别处」而收起的时间戳：菜单栏图标本身的点击也会落到全局监听里，
+    /// 收起后紧接着的那次按钮点击要忽略，否则会「关掉又立刻弹开」。
+    private(set) var lastHiddenAt = Date.distantPast
+    /// 刚刚收起时正在显示的是哪个指标（用来区分「点同一个图标＝关」与「点另一个图标＝切」）。
+    private(set) var lastHiddenMetric: MonitorMetric?
 
     init() {
         let controller = NSViewController()
@@ -207,6 +244,7 @@ final class MonitorPanelController {
         popover.behavior = .transient
         popover.animates = false
         anchorWindow.contentView = anchorView
+        view.onClose = { [weak self] in self?.hide() }
     }
 
     var isVisible: Bool { popover.isShown }
@@ -242,6 +280,35 @@ final class MonitorPanelController {
             anchorWindow.orderFront(nil)
         }
         popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+        installDismissMonitors()
+    }
+
+    private func installDismissMonitors() {
+        removeDismissMonitors()
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            guard let self, self.popover.isShown else { return }
+            let point = NSEvent.mouseLocation
+            if self.popoverFrame()?.contains(point) == true { return }
+            self.hide()
+        }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard let self, self.popover.isShown, event.keyCode == 53 else { return event }
+            self.hide()
+            return nil
+        }
+    }
+
+    private func removeDismissMonitors() {
+        if let monitor = globalMonitor { NSEvent.removeMonitor(monitor) }
+        if let monitor = localMonitor { NSEvent.removeMonitor(monitor) }
+        globalMonitor = nil
+        localMonitor = nil
+    }
+
+    private func popoverFrame() -> NSRect? {
+        view.window?.frame
     }
 
     /// 按钮在屏幕坐标系里的矩形（用它算锚点位置，之后按钮再动也不影响）。
@@ -261,6 +328,9 @@ final class MonitorPanelController {
         guard popover.isShown else { return }
         popover.performClose(nil)
         anchorWindow.orderOut(nil)
+        removeDismissMonitors()
+        lastHiddenAt = Date()
+        lastHiddenMetric = visibleMetric
         visibleMetric = nil
     }
 

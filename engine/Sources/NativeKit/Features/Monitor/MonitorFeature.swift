@@ -149,6 +149,12 @@ final class MonitorFeature: NSObject, NativeFeature {
     // MARK: - 面板
 
     private func togglePanel(metric: MonitorMetric, button: NSStatusBarButton) {
+        // 刚因为「点了别处」收起（包括点菜单栏图标本身）：点的是刚关掉的那个图标就保持关闭，
+        // 点的是另一个图标则当成「切换到这个指标」。
+        if !panel.isVisible, Date().timeIntervalSince(panel.lastHiddenAt) < 0.35,
+           panel.lastHiddenMetric == metric {
+            return
+        }
         if panel.isVisible, panel.visibleMetric == metric {
             panel.hide()
             return
