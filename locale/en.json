@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Native Helper",
+    "description": "Screenshot, clipboard history and text translation in one native process, each switchable on its own from the plugin settings page."
+  }
+}

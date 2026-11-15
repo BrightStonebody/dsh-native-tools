@@ -1,0 +1,11 @@
+- insert:
+    - id: dsh-native-tools
+      name: 'dsh-native-tools'
+      # 三个功能（截图 / 剪贴板历史 / 翻译）共用一个原生进程。
+      # 下面的出厂默认值只是兜底：真正的开关与快捷键都在「插件」页的设置面板里改，
+      # 面板写进 profile 的值会覆盖这里的默认值。
+      #   screenshot.enabled / hotkey / saveDirectory / ocrLanguages / ocrKeepLineBreaks
+      #   clipboard.enabled  / hotkey / maxItems / retentionDays
+      #   translate.enabled  / hotkey / provider / targetLanguage
+      #   appPath            helper 的 .app 路径，留空用包内 helper/DSHNative.app
+      config: {}

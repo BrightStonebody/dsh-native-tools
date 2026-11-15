@@ -1,0 +1,36 @@
+{
+  "name": "dsh-native-tools",
+  "version": "2.0.4",
+  "private": true,
+  "type": "module",
+  "description": "Harness 的原生助手三合一：截图（拖框、工具条、红框标注、文字识别）、剪贴板历史、划词翻译。三个功能跑在同一个 AppKit 进程里，各自可在插件页单独开关；Host 插件负责生命周期与翻译通道。",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "translate-host.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "helper",
+    "install.sh",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  }
+}
