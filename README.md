@@ -28,8 +28,11 @@
 
 ```sh
 git clone https://github.com/BrightStonebody/dsh-native-tools
-# 或者下载 Release 里的 zip 解压，效果一样
+# 或者下载 Release 里的 dsh-native-tools.tgz 解压，效果一样
 ```
+
+Release 上同时挂着 `.tgz` 与 `.zip` 两份同样的内容：`.tgz` 是给 DSH 插件市场的
+`tarball:` 字段用的（市场只认 GitHub Release 上的 https `.tgz`），`.zip` 是给人手下载的。
 
 然后：
 
@@ -100,7 +103,7 @@ dsh-native-tools/
 ├── locale/{zh,en}.json 插件页上的名称与简介
 ├── icon.svg            插件图标
 ├── install.sh          去隔离 + 重签 helper
-├── pack.sh             打 dist/dsh-native-tools-<版本>.zip（唯一打包入口）
+├── pack.sh             打 dist/dsh-native-tools-<版本>.zip 与 .tgz（唯一打包入口）
 ├── helper/DSHNative.app 通用二进制（arm64 + x86_64），三项功能同一个进程
 ├── host-test/          Host 半边的热更新自测（改设置不重启、按需 spawn）
 ├── design/             图标源文件（1024 位图 + iconset）
@@ -166,7 +169,8 @@ $APP --feature screenshot --no-adopt   # 不接管已有进程，调试用
 先在本机打包（版本号取自 `package.json`，会顺手校验 helper 是通用二进制）：
 
 ```bash
-./pack.sh          # → dist/dsh-native-tools-<版本>.zip
+./pack.sh          # → dist/dsh-native-tools-<版本>.zip 与 dsh-native-tools-<版本>.tgz
+                   # 另存 dist/dsh-native-tools.tgz（不带版本号的稳定链接名，Release 用）
 ```
 
 到新机器上：

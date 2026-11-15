@@ -45,8 +45,19 @@ mkdir -p "$DIR/dist"
 rm -f "$OUT"
 ( cd "$STAGE" && zip -r -X -q "$OUT" dsh-native-tools )
 
+# 同一份内容再打一个 .tgz：GitHub Release 上挂这个，DSH 插件市场的条目用
+# tarball: 指向它（市场只接受 GitHub Release 上的 https .tgz）。
+# 另存一份不带版本号的副本，方便 releases/latest/download/dsh-native-tools.tgz
+# 这种稳定链接。
+TGZ="$DIR/dist/dsh-native-tools-$VERSION.tgz"
+TGZ_STABLE="$DIR/dist/dsh-native-tools.tgz"
+rm -f "$TGZ" "$TGZ_STABLE"
+( cd "$STAGE" && tar -czf "$TGZ" dsh-native-tools )
+cp "$TGZ" "$TGZ_STABLE"
+
 echo "已生成：$OUT"
-echo "大小：$(du -h "$OUT" | cut -f1)"
+echo "        ${TGZ}（Release 用）"
+echo "大小：$(du -h "$OUT" | cut -f1) / $(du -h "$TGZ" | cut -f1)"
 echo "helper：$ARCHS"
 echo "文件数：$(unzip -l "$OUT" | tail -1 | awk '{print $2}')"
 echo
