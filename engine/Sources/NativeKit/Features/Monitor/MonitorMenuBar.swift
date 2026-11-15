@@ -22,9 +22,13 @@ final class MonitorMenuBar: NSObject {
     private static let imageHeight: CGFloat = 23
 
     private var entries: [Entry] = []
-    /// 图片宽度**跟着文字走**（`variableLength` 下系统按自己的规则加左右内边距，
-    /// 三个控件与别的菜单栏图标间距一致）。数字位数变化会让按钮轻微变宽变窄，
-    /// 面板不再跟着漂 —— 那是 `MonitorPanelController` 的固定锚点负责的。
+    /// 每一项图片的**固定宽度**：按该指标最坏样本算一次（`100%` / `↓999M`）。
+    ///
+    /// 为什么不跟文字走：网速文案在 `↓0B` / `↓512B` / `↓9.5K` / `↑1.0M` 之间来回跳，
+    /// 按钮宽度跟着变，菜单栏里就一直在抖，右边的邻居也跟着被推来推去。宽度固定之后
+    /// 文字在固定画布里居中，变化只发生在字上，控件不动。
+    /// 左右内边距仍交给系统（`variableLength`），所以间距和别的菜单栏图标一致。
+    private var widths: [MonitorMetric: CGFloat] = [:]
     private var settings: MonitorSettings
     var onSelect: ((MonitorMetric, NSStatusBarButton) -> Void)?
 
@@ -47,6 +51,7 @@ final class MonitorMenuBar: NSObject {
 
     private func build() {
         removeAll()
+        widths = Self.worstWidths(detailed: settings.networkDetailed)
         for metric in MonitorMetric.allCases {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             if let button = item.button {
@@ -102,7 +107,7 @@ final class MonitorMenuBar: NSObject {
             entries[index].item.button?.image = Self.image(
                 top: lines.top,
                 bottom: lines.bottom,
-                width: Self.imageWidth(top: lines.top, bottom: lines.bottom)
+                width: widths[metric] ?? 0
             )
             entries[index].item.button?.toolTip = Self.tooltip(metric: metric, lines: lines)
         }
@@ -132,6 +137,16 @@ final class MonitorMenuBar: NSObject {
         return ceil(width)
     }
 
+    /// 每个指标按「最坏样本」算一次宽度：`100%` / `↓999M`。文案再跳，画布不变。
+    private static func worstWidths(detailed: Bool) -> [MonitorMetric: CGFloat] {
+        var result: [MonitorMetric: CGFloat] = [:]
+        for metric in MonitorMetric.allCases {
+            let sample = MonitorFormat.menuWidthSample(metric: metric, detailed: detailed)
+            result[metric] = imageWidth(top: sample.top, bottom: sample.bottom)
+        }
+        return result
+    }
+
     private static func image(top: String, bottom: String, width: CGFloat) -> NSImage {
         let width = max(width, imageWidth(top: top, bottom: bottom))
         let size = NSSize(width: width, height: imageHeight)
@@ -155,6 +170,17 @@ final class MonitorMenuBar: NSObject {
         // template：跟着菜单栏的明暗自动反色。
         image.isTemplate = true
         return image
+    }
+
+    /// 自测用：某块画布给这个指标预留的宽度（最坏样本宽度）。
+    static func reservedWidthForTesting(metric: MonitorMetric, detailed: Bool) -> CGFloat {
+        let sample = MonitorFormat.menuWidthSample(metric: metric, detailed: detailed)
+        return imageWidth(top: sample.top, bottom: sample.bottom)
+    }
+
+    /// 自测用：这段文案实际需要的宽度。
+    static func imageWidthForTesting(top: String, bottom: String) -> CGFloat {
+        imageWidth(top: top, bottom: bottom)
     }
 
     /// 自测/排查用：每项图片宽度、按钮宽度、item 长度（看「和系统图标间距不一样」是谁的锅）。

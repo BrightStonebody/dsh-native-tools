@@ -161,7 +161,9 @@ enum MonitorFormat {
         case .cpu, .memory:
             return (metric == .cpu ? "CPU" : "MEM", "100%")
         case .network:
-            return detailed ? ("↑999M", "↓999M") : ("", "↓999M")
+            // 最宽的不是 999M 而是 `1023B`（`compactRate` 在 1024 以下直接给整数 B，
+            // 四位数字 + B 比 `999M` 还宽一个字），加上箭头共 6 个字符。
+            return detailed ? ("↑1023B", "↓1023B") : ("", "↓1023B")
         }
     }
 

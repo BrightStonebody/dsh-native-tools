@@ -94,6 +94,21 @@ enum MonitorSelfTest {
             widthSample.top == "CPU" && widthSample.bottom == "100%",
             "\(widthSample.top) / \(widthSample.bottom)"
         )
+        // 网速在 0B / 512B / 9.5K / 999M 之间跳，画布宽度必须不变（否则菜单栏一直抖）。
+        var sampleTotals = MonitorTotals()
+        let rates: [Double] = [0, 512, 1023, 1024, 9728, 1022976, 1048576, 1047527424, 1610612736]
+        let widths = rates.map { value -> CGFloat in
+            sampleTotals.downPerSecond = value
+            sampleTotals.upPerSecond = value
+            let lines = MonitorFormat.menuLines(metric: .network, totals: sampleTotals, detailed: true)
+            return MonitorMenuBar.imageWidthForTesting(top: lines.top, bottom: lines.bottom)
+        }
+        let bandWidth = MonitorMenuBar.reservedWidthForTesting(metric: .network, detailed: true)
+        record(
+            "menu-width-reserved",
+            widths.allSatisfy { $0 <= bandWidth + 0.5 } && bandWidth > 0,
+            "reserved \(Int(bandWidth)) / 最宽样本 \(Int(widths.max() ?? 0))"
+        )
         record(
             "title-cpu",
             MonitorFormat.cpuTitle(23.6) == "24%",
