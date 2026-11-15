@@ -54,7 +54,8 @@ struct MonitorTotals {
 struct MonitorRow {
     var pid: pid_t
     var name: String
-    /// 进程归属的 App 图标（面板每行左侧显示）；纯命令行/系统守护进程退化成可执行文件图标。
+    /// 进程归属的 App 图标（面板每行左侧显示）。只对**真 App 的进程**给图标：
+    /// 守护进程/命令行工具没有归属 App，画一个通用可执行文件图标反而像加载失败。
     var icon: NSImage?
     var cpuPercent: Double = 0
     var memoryBytes: UInt64 = 0
@@ -578,16 +579,46 @@ final class MonitorAppIcon {
     }
 
     private static func resolve(pid: pid_t) -> NSImage? {
+        // ① 系统自己登记成 App 的进程（Finder、Chrome 主进程、少数 helper）直接给图标。
+        //    必须要求 bundleIdentifier：不带 bundle 的命令行工具也会造出一个「通用 App」，
+        //    那个通用图标正是我们要避免的空白方块。
         if let application = NSRunningApplication(processIdentifier: pid),
+           application.bundleIdentifier != nil,
            let icon = application.icon {
             return icon
         }
-        // PROC_PIDPATHINFO_MAXSIZE 是宏（Swift 里不可用），按 4 * MAXPATHLEN 自己铺缓冲。
+        // ② 其余 helper（Chrome / DSH 的 Renderer、GPU…）在 LaunchServices 里没有身份，
+        //    但它们的可执行文件躺在某个 `.app/Contents/…` 里 —— 用宿主 App 的图标。
+        //    守护进程（WindowServer、powermetrics、sysmond、airportd）不在 .app 里，
+        //    通用可执行文件图标在 16px 下就是一块空白，所以不给图标，面板那格留空。
+        return bundleIcon(pid: pid)
+    }
+
+    /// 进程的可执行文件在某个 `.app` 里时，返回那个 App 的图标。
+    private static func bundleIcon(pid: pid_t) -> NSImage? {
+        guard let executable = executablePath(pid: pid),
+              let range = executable.range(of: ".app/Contents/") else { return nil }
+        let bundlePath = String(executable[executable.startIndex..<range.lowerBound]) + ".app"
+        guard FileManager.default.fileExists(atPath: bundlePath) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: bundlePath)
+        return icon.size.width > 0 ? icon : nil
+    }
+
+    private static func executablePath(pid: pid_t) -> String? {
+        // `PROC_PIDPATHINFO_MAXSIZE` 是 C 宏（Swift 里不可用），按 4 * MAXPATHLEN 自己铺缓冲。
         var path = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
         let executable = String(cString: path)
-        guard !executable.isEmpty else { return nil }
-        let icon = NSWorkspace.shared.icon(forFile: executable)
-        return icon.size.width > 0 ? icon : nil
+        return executable.isEmpty ? nil : executable
+    }
+
+    /// 自测用：确认「pid → 可执行文件路径 → 所在 .app → 图标」这条兜底链能通。
+    func bundleIconForTesting(pid: pid_t) -> NSImage? {
+        Self.bundleIcon(pid: pid)
+    }
+
+    /// 自测用：进程的可执行文件绝对路径。
+    func executablePathForTesting(pid: pid_t) -> String? {
+        Self.executablePath(pid: pid)
     }
 }

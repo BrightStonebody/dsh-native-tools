@@ -296,21 +296,49 @@ enum MonitorSelfTest {
 
         // MARK: App 图标
 
+        // 自测进程是命令行可执行文件、没有 bundle → 按设计不给图标（面板那格留空）。
         let ownIcon = MonitorAppIcon.shared.icon(for: getpid())
         record(
-            "app-icon-self",
-            ownIcon != nil && (ownIcon?.size.width ?? 0) > 0,
-            ownIcon.map { "icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil"
+            "app-icon-none-for-cli",
+            ownIcon == nil,
+            ownIcon == nil ? "no icon for unbundled binary" : "unexpected icon"
         )
+        // launchd 同样没有归属 App。
         let launchdIcon = MonitorAppIcon.shared.icon(for: 1)
         record(
-            "app-icon-launchd",
-            launchdIcon != nil,
-            launchdIcon.map { "icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil"
+            "app-icon-none-for-daemon",
+            launchdIcon == nil,
+            launchdIcon == nil ? "no icon for launchd" : "unexpected icon"
+        )
+        // 「pid → 可执行文件路径 → 所在 .app → 图标」这条兜底链要通：Finder 在 .app 里，必须拿到图标。
+        let finderPid = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.finder" }?
+            .processIdentifier
+        let finderBundleIcon = finderPid.flatMap { MonitorAppIcon.shared.bundleIconForTesting(pid: $0) }
+        record(
+            "app-icon-bundle-fallback",
+            finderBundleIcon != nil && (finderBundleIcon?.size.width ?? 0) > 0,
+            finderBundleIcon.map { "icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil (finder pid \(finderPid.map(String.init) ?? "?"))"
+        )
+        // 自测进程自己不在 .app 里 → 兜底链也应该返回 nil（守护进程同理，这是「空白方块」的源头）。
+        let cliBundleIcon = MonitorAppIcon.shared.bundleIconForTesting(pid: getpid())
+        record(
+            "app-icon-no-bundle-fallback",
+            cliBundleIcon == nil,
+            MonitorAppIcon.shared.executablePathForTesting(pid: getpid()).map { "path \($0)" } ?? "no path"
+        )
+        // 真 App（有 bundle 的进程，比如 Finder / DSH 自己）必须拿到图标，并且是缓存同一个实例。
+        let bundledApp = NSWorkspace.shared.runningApplications.first {
+            $0.bundleIdentifier != nil && $0.processIdentifier > 0 && $0.icon != nil
+        }
+        let appIcon = bundledApp.flatMap { MonitorAppIcon.shared.icon(for: $0.processIdentifier) }
+        record(
+            "app-icon-bundled",
+            appIcon != nil,
+            appIcon.map { "\(bundledApp?.localizedName ?? "?") icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil"
         )
         record(
             "app-icon-cached",
-            MonitorAppIcon.shared.icon(for: getpid()) === ownIcon,
+            bundledApp != nil && MonitorAppIcon.shared.icon(for: bundledApp!.processIdentifier) === appIcon,
             "same instance on second lookup"
         )
         let decorated = processRows.map { row -> MonitorRow in

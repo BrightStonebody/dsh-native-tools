@@ -81,7 +81,7 @@ $NODE host-test/live-toggle.mjs    # maxItems 热生效、关掉后进程退出
 $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、改热键、同进程换功能
 ```
 
-当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 53 项，全过；helper md5 `4a4d3c10513c2dd1034bc975f7ce54cb`，`lipo -archs` = `x86_64 arm64`。
+当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 57 项，全过；helper md5 `913968b5db8696695dcbfccc1cbaabdc`，`lipo -archs` = `x86_64 arm64`。
 
 安装（本机）：`plugin_manager install_bundle`，target 用 `link:/Users/a1/Documents/deepseek-harness/default-workspace/dsh-native-tools`。装好后 entryId 是 `include:dsh-native-tools`（`list_plugins` 要 offset=200 才看得到，总数 238）。
 
@@ -114,12 +114,12 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 
 21. **进程名有三个来源，各有短板，必须合并**：`proc_name()` 只有 32 字节（`DeepSeek Harness Helper (Render`）、`nettop` 只给 15 个字符（`DeepSeek Harnes`）、`ps -A -o comm=` 是完整路径（取 lastPathComponent 才好看但最全）。`MonitorSampler` 的策略是：rusage 名做底 → ps 名更长就覆盖 → nettop 行用 `resolveNames()` 按 pid 换成 ps 全名 → 空名回退 `pid <n>`。另外**无 root 时 `proc_pid_rusage` 拿不到 root 进程**（本机 456 个 pid 里 178 个失败，`WindowServer` 就在其中），所以 CPU/内存榜必须用 `ps -A -o pid=,pcpu=,rss=,comm=` 兜底；`pcpu` 是内核衰减平均，别拿它当瞬时值去和 rusage 差分比大小。
 
-22. **进程的 App 图标**（系统监控）：优先 `NSRunningApplication(processIdentifier:)?.icon`（Chrome 的每个 helper 都会拿到 Chrome 的图标），拿不到再走 `proc_pidpath` + `NSWorkspace.shared.icon(forFile:)`（命令行/守护进程退化成可执行文件图标）。注意两点：`PROC_PIDPATHINFO_MAXSIZE` 是宏、Swift 里不可用（报 `structure not supported`），自己铺 4096 字节缓冲；图标解析要 `NSLock` 缓存（`MonitorAppIcon.shared`，5 分钟过期），并且**只在主线程调用**——采样可以在后台，装饰图标不行。
+22. **进程的 App 图标只给「真的归属某个 App」的进程**（系统监控）：两步 —— ① `NSRunningApplication(processIdentifier:)` 且 `bundleIdentifier != nil` 才用它的 `icon`（不带 bundle 的命令行工具也会造出「通用 App」，那个通用图标就是用户看到的空白方块）；② 否则看可执行文件是否落在某个 `.app/Contents/…` 里，是就用那个 App 的图标 —— Chrome / DSH 的 Renderer、GPU 这些 helper 在 LaunchServices 里没有身份（实测一部分 `bid=nil`），全靠这条兜底。**不要直接对可执行文件取 `NSWorkspace.icon(forFile:)` 当兜底**：守护进程（WindowServer、powermetrics、sysmond、airportd）拿到的是通用空白方块，16px 下像加载失败。另两点：`PROC_PIDPATHINFO_MAXSIZE` 是 C 宏、Swift 里拿不到（报 `structure not supported`），自己铺 4096 字节缓冲；图标解析要 `NSLock` 缓存（`MonitorAppIcon.shared`，5 分钟过期），并且**只在主线程调用** —— 采样可以在后台，装饰图标不行。
 
 ## 发布（GitHub / 插件市场）
 
 - 仓库：<https://github.com/BrightStonebody/dsh-native-tools>（public，topics 含 `dsh-plugin`）
-- Release `v2.1.1`（系统监控改版）：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.1.0.tgz` + `.zip`
+- Release `v2.1.2`（系统监控改版，含图标规则收紧）：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.1.0.tgz` + `.zip`
 - 收录条目：`submission/BrightStonebody__dsh-native-tools.yml`（`category: tools`，`icon` 用 GitHub 托管的 PNG，`tarball` 用 Release 稳定链接）
 - 打包/发布脚本（不在仓库里，在工作区根）：`publish-dsh-native-tools.sh`（建仓→推送→topics→Release）、`submit-listing.sh`（fork→放条目→开 PR）
 - 市场收录规则里容易踩的：`package.json` 必须声明 `dsh.bundle`（只写 `dsh.client` 会被拒）；仓库要公开且**创建满 1 天**（没有提交数门槛）；条目文件必须是 `data/plugins/<owner>__<repo>.yml`（只深一层）；`icon` 只认 GitHub 托管的位图（SVG 被拒）；`description.en` 必填且单行。`dshmarket` 只是个客户端，不收条目。
@@ -131,7 +131,7 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 2. ~~三个旧目录~~ **已删（2026-11-15）**：`dsh-screenshot` / `dsh-clipboard` / `dsh-translate`（含 `helper.retired/`、旧 engine、旧 dist）整体删除；唯二不重复的东西先搬进 `dsh-native-tools/design/`（`icon-1024.png` + `icon.iconset`，图标源文件）。工作区根目录残留的旧独立包 `dsh-clipboard-macos-universal.zip`（`dsh-clipboard/` 112 个文件，含 `__MACOSX/` 垃圾）同日一并删除——它是合并前那个单功能包的构建产物，功能已被 `dsh-native-tools` 覆盖。旧目录里没有 dsh-native-tools 缺的东西：docs 图片更旧、engine 源码与 locale 都是被合并后的副本。
 3. **待优化（可选）**：单进程 RSS ≈ 45 MB，合并前三个进程合计 ≈ 26 MB —— 省的是重复代码与进程数，不是内存。若在意，可把 OCR 模型改成按需热身。
 4. **待提交收录 PR（2026-11-16 16:00 之后）**：列表仓库 CI 的硬门槛是「仓库创建满 1 天」，`BrightStonebody/dsh-native-tools` 创建于 2026-11-15 16:00:45 (+08)，所以 11-16 16:00 之后才能提。分支**已经推好在 fork 上**：`BrightStonebody/awesome-dsh-plugin` 的 `add-dsh-native-tools`（commit `e8dcadf`，只加 `data/plugins/BrightStonebody__dsh-native-tools.yml`）。到点后跑 `bash …/default-workspace/submit-listing.sh`，或者手工 `gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --head BrightStonebody:add-dsh-native-tools`。注意 `gh` 需要走代理 `HTTPS_PROXY=http://127.0.0.1:7897`（直连 github.com:443 超时），`git push` 走 SSH 不需要。
-5. ~~版本号~~ **2.1.1（2026-11-16）**：`dist/dsh-native-tools-2.1.1.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个控件 + 点开看进程排名；坑 19–22）→ **2.1.1 系统监控改版**：菜单栏改成「上标签 / 下数字」两行、网络只留 ↑↓ 上下叠加、字号加大；面板每行加进程所属 App 的图标；修掉「面板过一会儿往左下漂」（按钮宽度与面板高度都钉死，见坑 19/20）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 44 全过。
+5. ~~版本号~~ **2.1.2（2026-11-16）**：`dist/dsh-native-tools-2.1.2.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个控件 + 点开看进程排名；坑 19–22）→ **2.1.1 系统监控改版**（2.1.2 又收紧了图标规则：只给真归属 App 的进程画图标）：菜单栏改成「上标签 / 下数字」两行、网络只留 ↑↓ 上下叠加、字号加大；面板每行加进程所属 App 的图标；修掉「面板过一会儿往左下漂」（按钮宽度与面板高度都钉死，见坑 19/20）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 44 全过。
 
 ## 验证一次是否还健康
 
