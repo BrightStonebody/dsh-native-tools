@@ -1,0 +1,127 @@
+# 交接摘要（HANDOFF）
+
+> 新会话开场只要说一句「读 `dsh-native-tools/HANDOFF.md`」，再讲要做什么，就能接上。
+> 这份文件写于 2026-11-15 14:35（Asia/Shanghai），内容是**当时**的现场状态；凡带「待」的地方都还没做完。
+
+## 一句话现状
+
+三个原本各自独立、各自一个原生进程的插件（截图 / 剪贴板历史 / 翻译），已经合并成**一个插件包 + 一个原生进程**：包名 `dsh-native-tools` 2.0.0，安装方式是 profile 里的 `link:`；原生侧是 `helper/DSHNative.app`（通用二进制），一个进程里同时跑三个 feature，各自保留原来的控制 socket 与配置目录。
+
+## 目录与职责
+
+```
+default-workspace/dsh-native-tools/
+├── package.json          dsh-native-tools 2.0.0；dsh.bundle.patch → cordis.patch.yml；dsh.client → client.js
+├── cordis.patch.yml      insert 行 id `dsh-native-tools`，config: {}（默认值由 schemastery schema 给）
+├── index.js              Host 半边：Config schema、spawn/adopt/detach、5s 探活、翻译请求服务端
+├── translate-host.js     翻译的 Host 半边（从旧 dsh-translate/index.js 抽出来的模块）
+├── client.js             客户端半边：插件页里的设置页（三张卡 + 三个开关），注册两个槽
+├── locale/{zh,en}.json   插件名「原生助手」/ "Native Helper" 与简介
+├── icon.svg              三功能合一的图标
+├── install.sh            去 quarantine + 重签 helper（分发到别的机器时跑）
+├── engine/
+│   ├── build.sh          唯一构建入口：arm64 + x86_64 → lipo → 装进 helper → 重签
+│   └── Sources/NativeKit/
+│       ├── Core/         Support(Log/printJSON/Output) · HotKey(多通道) · Control(参数化 socket)
+│       │                 NativeFeature(协议+FeatureContext) · NativeHost(生命周期+共享通道)
+│       │                 ScreenshotSettings / ClipboardSettings / TranslateSettings
+│       ├── Features/Screenshot/  Capture OCR OCRPanel Overlay Renderer Toolbar
+│       │                         ScreenshotSelfTest ScreenshotFeature
+│       ├── Features/Clipboard/   Panel Pasteboard Store ClipboardSettings
+│       │                         ClipboardSelfTest ClipboardFeature
+│       ├── Features/Translate/   TranslateClient TranslatePanel TranslateSettings
+│       │                         TranslateSelfTest TranslateFeature
+│       └── main.swift    入口：--status / --self-test / join 三步 / 起 NSApplication
+├── helper/DSHNative.app  产物：Contents/MacOS/DSHNative（通用二进制，2.0 MB 左右）
+├── docs/                 四张界面截图（toolbar / ocr-panel / clipboard-panel / translate-panel）
+├── dist/dsh-native-tools-2.0.0.zip   唯一分发包（1.2 MB，含 README 与上面这些）
+└── README.md             面向使用者的文档：功能、配置、构建、自测、分发、排查
+```
+
+Swift 代码约 7.5k 行。旧的三份独立引擎还在 `dsh-screenshot/engine`、`dsh-clipboard/engine`、`dsh-translate/engine` 里，仅作考古；三个包的 `helper/` 已改名 `helper.retired/`（旧插件 fiber 只要还能 spawn 到旧路径就会续命，改名是当时唯一可靠的阻断办法）。
+
+## 运行拓扑
+
+- Host（DSH Node 进程）里只有 `index.js`；它 spawn 一次 `helper/DSHNative.app/Contents/MacOS/DSHNative`，参数形如
+  `--feature screenshot --feature clipboard --feature translate --parent-pid <host pid> --host-socket ~/Library/Application Support/DSHTranslate/host.sock`。
+- 第二个及之后的插件实例不会起第二个进程：join 三步 = ①向自己的 feature socket 发 `adopt` → ②不行就向共享通道发 `{"command":"adopt","feature":…,"socket":…}` → ③都不行才 spawn；抢不到 socket 的新进程打印 `already-running` 直接退出。
+- 每 feature 独立 `generation` / `attached`；`release` 只认同一个代号（比对前 8 位，因为通道只露前缀），代号对不上回 `{"ok":true,"ignored":true}`；全部 detached 且没有 supervisor 时进程自己在 5 秒后退出。
+- 每个插件实例每 5 秒探活（`status`，超时 800ms），连续两次失败就重新 adopt 或拉起。**只通过 socket 接管的那一方，没有 child 进程可监听 exit，全靠这条探活自愈。**
+
+## 控制通道（调试时最有用）
+
+- 每 feature 独立 socket：`~/Library/Application Support/DSHScreenshot/control.sock`、`…/DSHClipboard/control.sock`、`…/DSHTranslate/control.sock`；共享通道 `~/Library/Application Support/DSHNative/control.sock`。
+- 环境变量可整体搬走（做隔离实验用）：`DSHS_NATIVE_HOME`、`DSHS_NATIVE_SOCKET`、`DSHS_SCREENSHOT_SOCKET`、`DSHS_SCREENSHOT_CONFIG_DIR`、`DSHS_CLIPBOARD_SOCKET`、`DSHS_CLIPBOARD_HOME`、`DSHS_TRANSLATE_SOCKET`、`DSHS_TRANSLATE_HOME`、`DSHS_TRANSLATE_HOST_SOCKET`。
+- 常用命令（一行 JSON + `\n`，回一行 JSON）：
+  - 通用：`status`、`adopt`、`release`、`quit`
+  - 截图：`capture`、`select {rect:[x,y,w,h]}`、`confirm`、`save-to {path}`、`ocr`、`ocr-panel`、`copy-text`、`ocr-settings`、`snapshot {path}`（调试钩子，会先夺回 first responder 再取像素）
+  - 剪贴板：`show`/`hide`/`toggle`/`configure`/`clear`/`delete`/`copy`/`snapshot`/`select`
+  - 翻译：`show`/`hide`/`translate {text}`、`configure`
+- 命令行探针：`helper/DSHNative.app/Contents/MacOS/DSHNative --status` 会逐个 feature 查一遍并合并打印。
+
+## 构建 / 自测 / 安装
+
+```bash
+cd …/default-workspace/dsh-native-tools
+
+# 构建（arm64 + x86_64 → lipo → 装进 helper → 重签）。唯一入口，别再手敲 swiftc。
+./engine/build.sh
+
+# 三段自测（都应在 failures 0）
+DSHS_SELFTEST_DIR=/tmp/st  ./helper/DSHNative.app/Contents/MacOS/DSHNative --self-test --feature screenshot
+DSHS_CLIPBOARD_HOME=/tmp/cb ./helper/DSHNative.app/Contents/MacOS/DSHNative --self-test --feature clipboard
+DSHS_TRANSLATE_HOME=/tmp/tr ./helper/DSHNative.app/Contents/MacOS/DSHNative --self-test --feature translate
+
+# 打包（dist/dsh-native-tools-<版本>.zip，版本号取自 package.json；会校验通用二进制）
+./pack.sh
+
+# Host 半边（改设置=热更新）的两段自测，见 host-test/README.md
+NODE=/Users/a1/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node   # 系统 PATH 里没有 node
+$NODE host-test/live-toggle.mjs    # maxItems 热生效、关掉后进程退出
+$NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、改热键、同进程换功能
+```
+
+当前基线：screenshot 20 项、clipboard 55 项、translate 11 项，全过；helper md5 `cdb841263d39c556ddc19a6386b5f99c`，`lipo -archs` = `x86_64 arm64`。
+
+安装（本机）：`plugin_manager install_bundle`，target 用 `link:/Users/a1/Documents/deepseek-harness/default-workspace/dsh-native-tools`。装好后 entryId 是 `include:dsh-native-tools`（`list_plugins` 要 offset=200 才看得到，总数 238）。
+
+## 踩过的坑（都还在生效，别重复踩）
+
+1. **改 `client.js` / `index.js` 源码后必须重启 DSH**，只刷新页面不够：loader 用 `tree.import(name)` 按 Node 的模块缓存装载（`cordis-plugin-loader/src/config/entry.ts` 的 `_init()`），进程不重启就还是旧代码；`client.js` 更是在 Host 启动时被读进内存。注意这条**只针对改代码**——改设置（volatile 字段）现在是热更新，见坑 12。
+2. **设置页要注册两个槽**：`plugins.bundle.config`（key = 包名 `dsh-native-tools`）与 `plugins.row.config`（key = `dsh-native-tools#dsh-native-tools`）。只注册后者时，插件详情页认为「这个插件没有配置」，开关就无处显示；bundle 槽的 owner 只给 `{view:'page'}`、**不给 `form`**，所以 `BundleConfigBridge` 自己去 `ctx.configForms.get('dsh-native-tools')` 取控制器并订阅快照。
+3. **helper 写 stdout/stderr 不能用 `FileHandle`**：插件那侧管道一关，`-[NSConcreteFileHandle writeData:]` 抛 ObjC 异常 → `SIGABRT`（有过三份崩溃报告）。必须走 `Core/Support.swift` 的 `Output.write(_:to:)`（内部 `Darwin.write`，EPIPE 直接丢行）。只加 `signal(SIGPIPE, SIG_IGN)` 不够。
+4. **`write` 会被同作用域的 `Output.write` 遮蔽**，编译报 `use of 'write' refers to instance method`；写 `Darwin.write(...)`。
+5. **局部变量别叫 `type`**：会遮蔽 `Swift.type(of:)`，报 `incorrect argument label in call (have 'of:', expected 'context:')`。同理 `let targetType = NativeHost.featureType(forSlug:)`。
+6. **两个 feature 不能有同名源文件**（都叫 `SelfTest.swift` 会让 swiftc 报 `filename "SelfTest.swift" used twice`）→ 现在是 `ScreenshotSelfTest.swift` / `ClipboardSelfTest.swift` / `TranslateSelfTest.swift`。
+7. **bash 里 `$APP（…）` 会把全角括号前当成变量名**（`APP�: unbound variable`）→ 用 `${APP}`。
+8. **屏幕录制的 TCC 授权记在责任进程 `DeepSeek Harness` 名下**（tccd 日志里 `responsible={identifier=com.deepseek.dsh}`），所以重编、重签 helper 都不会丢授权；换机器要重新勾一次「屏幕录制」。
+9. **Rosetta 下 Vision 文字识别不可用**（`arch -x86_64` 跑 `VNImageRequestHandler.perform` 回 `nilError`）——这是 Rosetta 的限制，Intel 真机上是原生执行，但**未实测**。
+10. **`debugSnapshot` 遇到活跃 field editor 会崩**：`cacheDisplay` 前先 `makeFirstResponder(view)`。
+11. **全关三个功能时进程会退出**：`detach` 之后如果 `status.features` 为空就发 `quit`，这是设计行为；别把它当成崩溃。
+12. **Config 里的叶子字段必须 `.volatile()`，否则设置页永远说「这个插件没有声明可配置项」**（2026-11-15 定位）。`dsh-settings/src/index.ts` 的 `describe()` 用 `volatileForm(schema)` 过滤，而 `dsh-settings/src/schema.ts` 的 `volatileForm()` 只保留 volatile 字段，一个都没有就返回 `undefined` → 该条目根本不进 settings 命名空间 → 客户端 `configForms.get('dsh-native-tools')` 的 `status` 恒为 `'unavailable'`。命名空间名是**profile 行 id**（`ns: entry.options.id`，即 `dsh-native-tools`），不是 loader entry id `include:dsh-native-tools`。这也是开关/热键能热更新的前提。
+13. **运行时读 volatile 字段要 `.get()`**：`apply(ctx, config)` 拿到的 `config.screenshot.enabled` 是 `{ get() }` 引用（cosmokit `createVolatile`，写入用 `Symbol.for('cosmokit.volatile.write')`，没有 subscribe）。`index.js` 顶部有 `val()`/`field()`/`stringField()`，全文件都走它们；`enabled`/`disabled` 那种 apply 时算一次的数组是错的，要现算 `desired()`。
+14. **`ctx.on('loader/volatile-update', …)` 是唯一的变更通知**，由 `Entry._commitVolatile()` 只派给**本条目自己的 fiber**（别的插件改设置收不到），携带变更过的 paths。`index.js` 的 `sync()` 收到后重新读配置、把进程对齐（卸下关掉的、接管打开的、给已接管的推新设置、换翻译通道），并发事件由 `syncChain` 串行化；`signatureOf()` 兜住「同值重复派发」。
+15. **`translate-host.js` 的 `settings` 原本闭包在 `startTranslateHost()` 里**，改 provider 不会生效；已加 `configure({provider,targetLanguage})`（会重新 `ensureTranslator`，目标语言每次请求现读）。
+16. **翻译通道的 socket 不能见 `EADDRINUSE` 就删**：那是「上一个实例的残根」还是「另一个活着的 DSH 正占着」，只有连一下才知道。早先的代码直接 `unlinkSync` 再重听，撞上第二种情况就是**拔掉别人的线**——对方还监听在已经没人能连到的 inode 上，翻译从此静默失败直到它重启（我们踩过一次：跑测试用了默认路径，把正在跑的 DSH 的 `host.sock` 删了）。现在 `translate-host.js` 先 `probeAlive()`，有人应答就警告并放弃；`owned` 为真才在 `close()` 里删自己的 socket。**跑任何测试都要把 `DSHS_TRANSLATE_HOST_SOCKET` 指向临时目录。**
+
+17. **翻译通道只有 `bing` / `google` 能用在浮窗里**：`@deepseek-ai/dsh-experimental-translator` 的 Config 联合类型是 `['google','bing','deepseek-account','deepseek-official']`（`src/index.ts:57`），但后两个是付费通道，`resolve()` 要求 `request.sessionId`，`TranslationStorage.run()` 还要 `sessionPersistence` 与一个活着的 Session 才能把译文记进会话日志（`storage.ts:77-84`）——全局快捷键弹出来的浮窗没有会话，所以它们必然抛 `TRANSLATION_SESSION_REQUIRED`。**这台机器的 profile 默认模型就是 `deepseek-account` / `deepseek-flash`，所以别以为「账号登着就能用」**。`translate-host.js` 里 `providerProblem()` 先拦一道：写错名字回 `TRANSLATION_PROVIDER_UNKNOWN`、写会话专用通道回 `TRANSLATION_SESSION_REQUIRED`，都在挂载翻译服务之前返回，避免变成一句没人看得懂的 Config 校验错误。client.js 的通道字段是下拉框（两个可选 + 两个禁用并写明原因）。
+
+18. **毛玻璃底板的圆角只能用 `maskImage`**（剪贴板面板，2026-11-15 用户报「大的背景圆角不是透明的，有白色背景色」）：在 `NSVisualEffectView`（`blendingMode = .behindWindow`）上设 `layer.cornerRadius` + `masksToBounds` 会把窗口服务器那张模糊底图裁掉，底板退化成一块不透明白色。正确做法是 `effect.maskImage = 九宫格圆角蒙版`（`ClipboardPanelController.roundedMask(radius:)`，`capInsets` = 半径、`resizingMode = .stretch`），图层上什么圆角都别设。自测 `panel-material` / `panel-mask-image` / `panel-no-layer-clip` 三项盯着这个，改回去立刻红。
+
+## 未完成 / 待办
+
+1. **待验证（重启 DSH 后）**：`.volatile()` 这次改动只改了 `index.js`/`translate-host.js`/`client.js`，**需要重启 DSH 才会装上新代码**。重启后确认「插件 › 原生助手」详情页出现三张卡、每卡一个开关；拨开关时对应 socket 消失/出现、热键注销/注册，且 DSH 不重启、helper 进程 pid 不变（换功能也不变）。
+   - 已用隔离环境验过：改 `maxItems` 热生效、改热键热生效（同 pid）、关掉唯一功能 ~150 ms 内退出、全关状态下开功能会自己 spawn、关一个开一个进程不换（翻译通道随之起来）。两个脚本已进仓库：`host-test/live-toggle.mjs`、`host-test/live-switch.mjs`，用法见 `host-test/README.md`。
+2. ~~三个旧目录~~ **已删（2026-11-15）**：`dsh-screenshot` / `dsh-clipboard` / `dsh-translate`（含 `helper.retired/`、旧 engine、旧 dist）整体删除；唯二不重复的东西先搬进 `dsh-native-tools/design/`（`icon-1024.png` + `icon.iconset`，图标源文件）。工作区根目录残留的旧独立包 `dsh-clipboard-macos-universal.zip`（`dsh-clipboard/` 112 个文件，含 `__MACOSX/` 垃圾）同日一并删除——它是合并前那个单功能包的构建产物，功能已被 `dsh-native-tools` 覆盖。旧目录里没有 dsh-native-tools 缺的东西：docs 图片更旧、engine 源码与 locale 都是被合并后的副本。
+3. **待优化（可选）**：单进程 RSS ≈ 45 MB，合并前三个进程合计 ≈ 26 MB —— 省的是重复代码与进程数，不是内存。若在意，可把 OCR 模型改成按需热身。
+4. ~~版本号~~ **2.0.4（2026-11-15）**：`dist/dsh-native-tools-2.0.4.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（见坑 18）。每版都按「解压 → `./install.sh` → 三段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 全过。
+
+## 验证一次是否还健康
+
+```bash
+cd …/default-workspace/dsh-native-tools
+pgrep -fl "DSHNative.app/Contents/MacOS/DSHNative"      # 应该只有一个进程
+./helper/DSHNative.app/Contents/MacOS/DSHNative --status # 三个 feature 同一 pid、attached=True、热键 ⇧⌘A / ⇧⌘V / ⇧⌘T
+```
+
+真机冒烟（同一进程里三件事）：截图 `capture → select [300,360,520,260] → save-to /tmp/a.png`；剪贴板 `snapshot`；翻译 `translate text="The quick brown fox…"` → `hide`。
