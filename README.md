@@ -128,8 +128,8 @@ dsh-native-tools/
 APP=helper/DSHNative.app/Contents/MacOS/DSHNative
 
 $APP --status                          # 三个功能各自的状态（JSON），没在跑则退出码 1
-$APP --self-test --feature screenshot  # 19 项
-$APP --self-test --feature clipboard   # 52 项
+$APP --self-test --feature screenshot  # 20 项
+$APP --self-test --feature clipboard   # 55 项
 $APP --self-test --feature translate   # 11 项
 $APP --self-test                       # 三项全跑
 $APP --feature screenshot --feature clipboard   # 手动起（可重复，也可逗号分隔）
