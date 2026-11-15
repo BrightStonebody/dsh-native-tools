@@ -117,7 +117,7 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 ## 发布（GitHub / 插件市场）
 
 - 仓库：<https://github.com/BrightStonebody/dsh-native-tools>（public，topics 含 `dsh-plugin`）
-- Release `v2.0.4`：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.0.4.tgz` + `.zip`
+- Release `v2.1.0`（系统监控）：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.1.0.tgz` + `.zip`
 - 收录条目：`submission/BrightStonebody__dsh-native-tools.yml`（`category: tools`，`icon` 用 GitHub 托管的 PNG，`tarball` 用 Release 稳定链接）
 - 打包/发布脚本（不在仓库里，在工作区根）：`publish-dsh-native-tools.sh`（建仓→推送→topics→Release）、`submit-listing.sh`（fork→放条目→开 PR）
 - 市场收录规则里容易踩的：`package.json` 必须声明 `dsh.bundle`（只写 `dsh.client` 会被拒）；仓库要公开且**创建满 1 天**（没有提交数门槛）；条目文件必须是 `data/plugins/<owner>__<repo>.yml`（只深一层）；`icon` 只认 GitHub 托管的位图（SVG 被拒）；`description.en` 必填且单行。`dshmarket` 只是个客户端，不收条目。
