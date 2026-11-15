@@ -32,5 +32,25 @@
         "@deepseek-ai/dsh-client-ui-plugin-manager"
       ]
     }
-  }
+  },
+  "license": "MIT",
+  "author": "BrightStonebody",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BrightStonebody/dsh-native-tools.git"
+  },
+  "homepage": "https://github.com/BrightStonebody/dsh-native-tools#readme",
+  "bugs": {
+    "url": "https://github.com/BrightStonebody/dsh-native-tools/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "screenshot",
+    "clipboard",
+    "translate",
+    "macos",
+    "ocr",
+    "appkit"
+  ]
 }

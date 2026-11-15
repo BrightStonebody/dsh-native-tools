@@ -108,13 +108,22 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 
 18. **毛玻璃底板的圆角只能用 `maskImage`**（剪贴板面板，2026-11-15 用户报「大的背景圆角不是透明的，有白色背景色」）：在 `NSVisualEffectView`（`blendingMode = .behindWindow`）上设 `layer.cornerRadius` + `masksToBounds` 会把窗口服务器那张模糊底图裁掉，底板退化成一块不透明白色。正确做法是 `effect.maskImage = 九宫格圆角蒙版`（`ClipboardPanelController.roundedMask(radius:)`，`capInsets` = 半径、`resizingMode = .stretch`），图层上什么圆角都别设。自测 `panel-material` / `panel-mask-image` / `panel-no-layer-clip` 三项盯着这个，改回去立刻红。
 
+## 发布（GitHub / 插件市场）
+
+- 仓库：<https://github.com/BrightStonebody/dsh-native-tools>（public，topics 含 `dsh-plugin`）
+- Release `v2.0.4`：`dsh-native-tools.tgz`（稳定名，条目 `tarball:` 指向它）+ `dsh-native-tools-2.0.4.tgz` + `.zip`
+- 收录条目：`submission/BrightStonebody__dsh-native-tools.yml`（`category: tools`，`icon` 用 GitHub 托管的 PNG，`tarball` 用 Release 稳定链接）
+- 打包/发布脚本（不在仓库里，在工作区根）：`publish-dsh-native-tools.sh`（建仓→推送→topics→Release）、`submit-listing.sh`（fork→放条目→开 PR）
+- 市场收录规则里容易踩的：`package.json` 必须声明 `dsh.bundle`（只写 `dsh.client` 会被拒）；仓库要公开且**创建满 1 天**（没有提交数门槛）；条目文件必须是 `data/plugins/<owner>__<repo>.yml`（只深一层）；`icon` 只认 GitHub 托管的位图（SVG 被拒）；`description.en` 必填且单行。`dshmarket` 只是个客户端，不收条目。
+
 ## 未完成 / 待办
 
-1. **待验证（重启 DSH 后）**：`.volatile()` 这次改动只改了 `index.js`/`translate-host.js`/`client.js`，**需要重启 DSH 才会装上新代码**。重启后确认「插件 › 原生助手」详情页出现三张卡、每卡一个开关；拨开关时对应 socket 消失/出现、热键注销/注册，且 DSH 不重启、helper 进程 pid 不变（换功能也不变）。
+1. ~~待验证（重启 DSH 后）~~ **已验证（2026-11-15）**：用户重启后看到「插件 › 原生助手」详情页的三张卡与三个开关，并在设置里改过翻译通道。注意这里有两层：`index.js`/`client.js` 改动**必须重启 DSH** 才装载（loader 走 Node 模块缓存），而改设置本身是热更新。
    - 已用隔离环境验过：改 `maxItems` 热生效、改热键热生效（同 pid）、关掉唯一功能 ~150 ms 内退出、全关状态下开功能会自己 spawn、关一个开一个进程不换（翻译通道随之起来）。两个脚本已进仓库：`host-test/live-toggle.mjs`、`host-test/live-switch.mjs`，用法见 `host-test/README.md`。
 2. ~~三个旧目录~~ **已删（2026-11-15）**：`dsh-screenshot` / `dsh-clipboard` / `dsh-translate`（含 `helper.retired/`、旧 engine、旧 dist）整体删除；唯二不重复的东西先搬进 `dsh-native-tools/design/`（`icon-1024.png` + `icon.iconset`，图标源文件）。工作区根目录残留的旧独立包 `dsh-clipboard-macos-universal.zip`（`dsh-clipboard/` 112 个文件，含 `__MACOSX/` 垃圾）同日一并删除——它是合并前那个单功能包的构建产物，功能已被 `dsh-native-tools` 覆盖。旧目录里没有 dsh-native-tools 缺的东西：docs 图片更旧、engine 源码与 locale 都是被合并后的副本。
 3. **待优化（可选）**：单进程 RSS ≈ 45 MB，合并前三个进程合计 ≈ 26 MB —— 省的是重复代码与进程数，不是内存。若在意，可把 OCR 模型改成按需热身。
-4. ~~版本号~~ **2.0.4（2026-11-15）**：`dist/dsh-native-tools-2.0.4.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（见坑 18）。每版都按「解压 → `./install.sh` → 三段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 全过。
+4. **待提交收录 PR（2026-11-16 16:00 之后）**：列表仓库 CI 的硬门槛是「仓库创建满 1 天」，`BrightStonebody/dsh-native-tools` 创建于 2026-11-15 16:00:45 (+08)，所以 11-16 16:00 之后才能提。分支**已经推好在 fork 上**：`BrightStonebody/awesome-dsh-plugin` 的 `add-dsh-native-tools`（commit `e8dcadf`，只加 `data/plugins/BrightStonebody__dsh-native-tools.yml`）。到点后跑 `bash …/default-workspace/submit-listing.sh`，或者手工 `gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --head BrightStonebody:add-dsh-native-tools`。注意 `gh` 需要走代理 `HTTPS_PROXY=http://127.0.0.1:7897`（直连 github.com:443 超时），`git push` 走 SSH 不需要。
+5. ~~版本号~~ **2.0.4（2026-11-15）**：`dist/dsh-native-tools-2.0.4.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（见坑 18）。每版都按「解压 → `./install.sh` → 三段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 全过。
 
 ## 验证一次是否还健康
 
