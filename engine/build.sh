@@ -2,7 +2,7 @@
 # 就地构建原生助手并装进本包的 helper/DSHNative.app。
 #
 # 源码就在本包内（engine/Sources/NativeKit），所以这个脚本是「唯一的」构建入口：
-# 三个功能编进同一个二进制，改完 Swift 跑一次即可，装完不必重装插件。
+# 四个功能编进同一个二进制，改完 Swift 跑一次即可，装完不必重装插件。
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +15,7 @@ APP="$PLUGIN_DIR/helper/DSHNative.app"
 cd "$HERE"
 SOURCES=(Sources/NativeKit/Core/*.swift Sources/NativeKit/Features/Screenshot/*.swift \
          Sources/NativeKit/Features/Clipboard/*.swift Sources/NativeKit/Features/Translate/*.swift \
-         Sources/NativeKit/main.swift)
+         Sources/NativeKit/Features/Monitor/*.swift Sources/NativeKit/main.swift)
 
 mkdir -p build
 swiftc -O -target arm64-apple-macos13.0 -o build/DSHNative-arm64 "${SOURCES[@]}"
@@ -26,4 +26,4 @@ cp build/DSHNative "$APP/Contents/MacOS/DSHNative"
 codesign --force --sign - --identifier ai.deepseek.dsh.native-helper "$APP" >/dev/null 2>&1 || true
 
 echo "已安装：${APP}（架构 $(lipo -archs "${APP}/Contents/MacOS/DSHNative")）"
-echo "自测：$HERE/build/DSHNative --self-test --feature screenshot|clipboard|translate"
+echo "自测：$HERE/build/DSHNative --self-test --feature screenshot|clipboard|translate|monitor"

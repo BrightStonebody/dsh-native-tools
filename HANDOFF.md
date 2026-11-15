@@ -81,7 +81,7 @@ $NODE host-test/live-toggle.mjs    # maxItems 热生效、关掉后进程退出
 $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、改热键、同进程换功能
 ```
 
-当前基线：screenshot 20 项、clipboard 55 项、translate 11 项，全过；helper md5 `cdb841263d39c556ddc19a6386b5f99c`，`lipo -archs` = `x86_64 arm64`。
+当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 44 项，全过；helper md5 `11501b5b2f1261618440de77bcc4305b`，`lipo -archs` = `x86_64 arm64`。
 
 安装（本机）：`plugin_manager install_bundle`，target 用 `link:/Users/a1/Documents/deepseek-harness/default-workspace/dsh-native-tools`。装好后 entryId 是 `include:dsh-native-tools`（`list_plugins` 要 offset=200 才看得到，总数 238）。
 
@@ -108,6 +108,12 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 
 18. **毛玻璃底板的圆角只能用 `maskImage`**（剪贴板面板，2026-11-15 用户报「大的背景圆角不是透明的，有白色背景色」）：在 `NSVisualEffectView`（`blendingMode = .behindWindow`）上设 `layer.cornerRadius` + `masksToBounds` 会把窗口服务器那张模糊底图裁掉，底板退化成一块不透明白色。正确做法是 `effect.maskImage = 九宫格圆角蒙版`（`ClipboardPanelController.roundedMask(radius:)`，`capInsets` = 半径、`resizingMode = .stretch`），图层上什么圆角都别设。自测 `panel-material` / `panel-mask-image` / `panel-no-layer-clip` 三项盯着这个，改回去立刻红。
 
+19. **菜单栏三个图标要 `NSStatusItem.variableLength` + 10 号等宽数字 + 11pt 符号**（系统监控，2026-11-16）：固定 `length` 会把长标题折成两行（`↓3.0 KB/s` 上、`↑1024 B/s` 下），`variableLength` 让按钮按「图标 + 标题」自己量宽；标题用紧凑写法（`↓1.5K↑1.0K`，不带 `/s`）。**菜单栏空间不足时 macOS 会把最左边的第三方项收进 `«`**，这不是 bug——`--status` 里的 `itemFrames`（`x/width/height/visible`）能确认三项各自在屏幕上的位置与宽度，别靠截图差分，插入三项会把右侧所有项整体推位，差分 bbox 只能圈出「这一带变了」。
+
+20. **`NSPopover` 的箭头区会吃掉 contentSize 的一条边**（`preferredEdge: .minY` 时在顶部）：内容被整体下推约 20pt，最后一行（页脚）就贴到边外被裁掉。`MonitorPanelController` 用 `popoverSlack = 22` 额外加高；改行数后必须重新 `contentSize`。
+
+21. **进程名有三个来源，各有短板，必须合并**：`proc_name()` 只有 32 字节（`DeepSeek Harness Helper (Render`）、`nettop` 只给 15 个字符（`DeepSeek Harnes`）、`ps -A -o comm=` 是完整路径（取 lastPathComponent 才好看但最全）。`MonitorSampler` 的策略是：rusage 名做底 → ps 名更长就覆盖 → nettop 行用 `resolveNames()` 按 pid 换成 ps 全名 → 空名回退 `pid <n>`。另外**无 root 时 `proc_pid_rusage` 拿不到 root 进程**（本机 456 个 pid 里 178 个失败，`WindowServer` 就在其中），所以 CPU/内存榜必须用 `ps -A -o pid=,pcpu=,rss=,comm=` 兜底；`pcpu` 是内核衰减平均，别拿它当瞬时值去和 rusage 差分比大小。
+
 ## 发布（GitHub / 插件市场）
 
 - 仓库：<https://github.com/BrightStonebody/dsh-native-tools>（public，topics 含 `dsh-plugin`）
@@ -123,7 +129,7 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
 2. ~~三个旧目录~~ **已删（2026-11-15）**：`dsh-screenshot` / `dsh-clipboard` / `dsh-translate`（含 `helper.retired/`、旧 engine、旧 dist）整体删除；唯二不重复的东西先搬进 `dsh-native-tools/design/`（`icon-1024.png` + `icon.iconset`，图标源文件）。工作区根目录残留的旧独立包 `dsh-clipboard-macos-universal.zip`（`dsh-clipboard/` 112 个文件，含 `__MACOSX/` 垃圾）同日一并删除——它是合并前那个单功能包的构建产物，功能已被 `dsh-native-tools` 覆盖。旧目录里没有 dsh-native-tools 缺的东西：docs 图片更旧、engine 源码与 locale 都是被合并后的副本。
 3. **待优化（可选）**：单进程 RSS ≈ 45 MB，合并前三个进程合计 ≈ 26 MB —— 省的是重复代码与进程数，不是内存。若在意，可把 OCR 模型改成按需热身。
 4. **待提交收录 PR（2026-11-16 16:00 之后）**：列表仓库 CI 的硬门槛是「仓库创建满 1 天」，`BrightStonebody/dsh-native-tools` 创建于 2026-11-15 16:00:45 (+08)，所以 11-16 16:00 之后才能提。分支**已经推好在 fork 上**：`BrightStonebody/awesome-dsh-plugin` 的 `add-dsh-native-tools`（commit `e8dcadf`，只加 `data/plugins/BrightStonebody__dsh-native-tools.yml`）。到点后跑 `bash …/default-workspace/submit-listing.sh`，或者手工 `gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --head BrightStonebody:add-dsh-native-tools`。注意 `gh` 需要走代理 `HTTPS_PROXY=http://127.0.0.1:7897`（直连 github.com:443 超时），`git push` 走 SSH 不需要。
-5. ~~版本号~~ **2.0.4（2026-11-15）**：`dist/dsh-native-tools-2.0.4.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（见坑 18）。每版都按「解压 → `./install.sh` → 三段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 全过。
+5. ~~版本号~~ **2.1.0（2026-11-16）**：`dist/dsh-native-tools-2.1.0.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个图标 + 点开看进程排名；坑 19–21）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 44 全过。
 
 ## 验证一次是否还健康
 

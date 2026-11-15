@@ -1,9 +1,9 @@
 /**
  * dsh-native-tools：截图 / 剪贴板历史 / 翻译，三合一。
  *
- * 三个功能共用一个原生进程（`helper/DSHNative.app`），三个功能各自有一个开关，
+ * 四个功能共用一个原生进程（`helper/DSHNative.app`），四个功能各自有一个开关，
  * 在插件设置页里单独打开或关掉；关掉的功能会被从进程里卸下来（热键注销、面板收起），
- * 三个都关掉时整个进程退出。
+ * 全部关掉时整个进程退出。
  *
  * Host 半边只做三件事：
  *   1. 保证那个进程活着（自己 spawn，或接管别的会话已经拉起来的那个）；
@@ -83,11 +83,20 @@ export const Config = schema?.object({
     provider: schema.string().default(DEFAULT_PROVIDER).volatile().description("翻译通道：bing、google 等（需要登录的通道会失败）。"),
     targetLanguage: schema.string().default("auto").volatile().description("目标语言：auto 表示中文进英文出、其他进中文。"),
   }),
+  monitor: schema.object({
+    enabled: schema.boolean().default(true).volatile().description("系统监控：菜单栏三个图标（网络上下行 / CPU / 内存），点开看占用最高的进程"),
+    refreshSeconds: schema.number().default(2).volatile().description("采样间隔秒数，1–60。"),
+    topCount: schema.number().default(8).volatile().description("点开图标后列出多少个进程，3–30。"),
+    showNetwork: schema.boolean().default(true).volatile().description("显示网络图标（↓下行 ↑上行速率）。"),
+    showCPU: schema.boolean().default(true).volatile().description("显示 CPU 图标（整机占用百分比）。"),
+    showMemory: schema.boolean().default(true).volatile().description("显示内存图标（已用百分比）。"),
+    networkDetailed: schema.boolean().default(true).volatile().description("网络图标是否同时显示上行速率，关掉只显示 ↓。"),
+  }),
   appPath: schema.string().default("").description("helper 的 .app 路径，留空用包内 helper/DSHNative.app。"),
 });
 
 // ---------------------------------------------------------------------------
-// 三个功能与它们的 socket
+// 四个功能与它们的 socket
 // ---------------------------------------------------------------------------
 
 /**
@@ -113,6 +122,12 @@ const FEATURES = [
     supportDir: "DSHTranslate",
     socketEnv: "DSHS_TRANSLATE_SOCKET",
   },
+  {
+    slug: "monitor",
+    label: "系统监控",
+    supportDir: "DSHMonitor",
+    socketEnv: "DSHS_MONITOR_SOCKET",
+  },
 ];
 
 const DEFAULT_APP = join(PACKAGE_DIR, "helper", "DSHNative.app");
@@ -137,7 +152,7 @@ function translateHostSocketPath() {
   return join(homedir(), "Library", "Application Support", "DSHTranslate", "host.sock");
 }
 
-/** 三个功能共享的那条通道：用来「加入已在跑的进程」与「按需装载/卸载功能」。 */
+/** 四个功能共享的那条通道：用来「加入已在跑的进程」与「按需装载/卸载功能」。 */
 function nativeSocketPath() {
   const override = process.env.DSHS_NATIVE_SOCKET;
   if (typeof override === "string" && override !== "") return override;
@@ -219,11 +234,11 @@ export function apply(ctx, config = {}) {
   const appPath = typeof configuredAppPath === "string" && configuredAppPath !== "" ? configuredAppPath : DEFAULT_APP;
   if (desired().length > 0) {
     if (!existsSync(appPath)) {
-      ctx.logger?.warn?.(`dsh-native-tools: 找不到 helper（${appPath}），三个功能都没启用；可用 appPath 指定`);
+      ctx.logger?.warn?.(`dsh-native-tools: 找不到 helper（${appPath}），四个功能都没启用；可用 appPath 指定`);
       return;
     }
     if (!existsSync(join(appPath, "Contents", "MacOS", "DSHNative"))) {
-      ctx.logger?.warn?.(`dsh-native-tools: helper 缺少可执行文件（${appPath}），三个功能都没启用`);
+      ctx.logger?.warn?.(`dsh-native-tools: helper 缺少可执行文件（${appPath}），四个功能都没启用`);
       return;
     }
   }
@@ -252,6 +267,16 @@ export function apply(ctx, config = {}) {
     }
     if (slug === "translate") {
       settings.hostSocket = translateHostSocketPath();
+    }
+    if (slug === "monitor") {
+      const refreshSeconds = field(slug, "refreshSeconds");
+      const topCount = field(slug, "topCount");
+      if (Number.isFinite(refreshSeconds)) settings.refreshSeconds = Math.floor(refreshSeconds);
+      if (Number.isFinite(topCount)) settings.topCount = Math.floor(topCount);
+      for (const key of ["showNetwork", "showCPU", "showMemory", "networkDetailed"]) {
+        const value = field(slug, key);
+        if (typeof value === "boolean") settings[key] = value;
+      }
     }
     return settings;
   };
@@ -479,7 +504,7 @@ export function apply(ctx, config = {}) {
     started.on("exit", (code, signal) => {
       if (child === started) child = undefined;
       if (disposing) return;
-      // 三个都关掉时会话自己把这进程送走（quit），这不是崩溃，别退避重启。
+      // 全部关掉时会话自己把这进程送走（quit），这不是崩溃，别退避重启。
       if (desired().length === 0) return;
       const delay = RESTART_STEPS_MS[Math.min(attempts, RESTART_STEPS_MS.length - 1)];
       attempts += 1;
@@ -515,14 +540,14 @@ export function apply(ctx, config = {}) {
     return false;
   };
 
-  /** 三个都关掉：让 helper 卸完最后一个功能后自己退出，别留个空进程。 */
+  /** 全部关掉：让 helper 卸完最后一个功能后自己退出，别留个空进程。 */
   const retireIfIdle = async () => {
     stopHealthMonitor();
     translateHost?.close();
     translateHost = undefined;
     const remaining = (await sendControl({ command: "status" }))?.features?.length;
     if (remaining === 0) await sendControl({ command: "quit" });
-    ctx.logger?.info?.("dsh-native-tools: 三个功能都关掉了，原生进程不保留");
+    ctx.logger?.info?.("dsh-native-tools: 四个功能都关掉了，原生进程不保留");
   };
 
   /**

@@ -182,6 +182,7 @@ final class NativeHost: NSObject, NSApplicationDelegate {
         ScreenshotFeature.self,
         ClipboardFeature.self,
         TranslateFeature.self,
+        MonitorFeature.self,
     ]
 
     static func supportDirectory(for type: any NativeFeature.Type) -> URL {

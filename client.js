@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
       { slug: 'screenshot', label: '截图', defaultHotkey: 'cmd+shift+a', note: '拖框截屏：复制、另存、加红框、识别文字' },
       { slug: 'clipboard', label: '剪贴板历史', defaultHotkey: 'cmd+shift+v', note: '搜索、预览、回车粘贴历史记录' },
       { slug: 'translate', label: '翻译', defaultHotkey: 'cmd+shift+t', note: '选中文本或输入框里按快捷键出译文' },
+      { slug: 'monitor', label: '系统监控', defaultHotkey: '', note: '状态栏三个图标：网络上下行、CPU、内存；点开看占用最高的进程' },
     ];
 
     /**
@@ -329,6 +330,7 @@ window.__ModuleLoader__.load({
       const screenshot = groupOf(value, 'screenshot');
       const clipboard = groupOf(value, 'clipboard');
       const translate = groupOf(value, 'translate');
+      const monitor = groupOf(value, 'monitor');
       return {
         screenshot: {
           enabled: screenshot.enabled !== false,
@@ -353,6 +355,15 @@ window.__ModuleLoader__.load({
             ? translate.targetLanguage.trim()
             : 'auto',
         },
+        monitor: {
+          enabled: monitor.enabled !== false,
+          refreshSeconds: Number.isFinite(monitor.refreshSeconds) ? monitor.refreshSeconds : 2,
+          topCount: Number.isFinite(monitor.topCount) ? monitor.topCount : 8,
+          showNetwork: monitor.showNetwork !== false,
+          showCPU: monitor.showCPU !== false,
+          showMemory: monitor.showMemory !== false,
+          networkDetailed: monitor.networkDetailed !== false,
+        },
       };
     }
 
@@ -363,6 +374,8 @@ window.__ModuleLoader__.load({
         const parts = FEATURES.map((feature) => {
           const group = values[feature.slug];
           if (!group.enabled) return `${feature.label} 关`;
+          // 系统监控没有快捷键，摘要里只报开关。
+          if (!feature.defaultHotkey) return `${feature.label} 开`;
           const parsed = parseHotkey(group.hotkey);
           return `${feature.label} ${parsed.label ?? group.hotkey}`;
         });
@@ -431,6 +444,12 @@ window.__ModuleLoader__.load({
             retentionDays: String(values.clipboard.retentionDays),
             provider: values.translate.provider,
             targetLanguage: values.translate.targetLanguage,
+            refreshSeconds: String(values.monitor.refreshSeconds),
+            topCount: String(values.monitor.topCount),
+            showNetwork: values.monitor.showNetwork,
+            showCPU: values.monitor.showCPU,
+            showMemory: values.monitor.showMemory,
+            networkDetailed: values.monitor.networkDetailed,
           },
           recording: '',
           error: '',
@@ -445,6 +464,7 @@ window.__ModuleLoader__.load({
         const values = valuesOf(this.props.form);
         const next = {};
         for (const feature of FEATURES) {
+          if (!feature.defaultHotkey) continue;
           const current = values[feature.slug].hotkey;
           const draft = this.state.draft[feature.slug];
           // 只在草稿本身就是无效写法时才接受外部更新，否则会打断用户输入。
@@ -705,6 +725,82 @@ window.__ModuleLoader__.load({
         ];
       }
 
+      renderMonitor(enabled, writable) {
+        const fields = this.state.fields;
+        const busy = this.state.busy || !writable || !enabled;
+
+        const metricSwitch = (key, label, hint) => h('div', { className: 'dsh-ss-field', key },
+          h('div', { className: 'dsh-ss-head' },
+            h('div', null,
+              h('div', { className: 'dsh-ss-label' }, label),
+              h('div', { className: 'dsh-ss-hint' }, hint),
+            ),
+            h(Switch, {
+              on: fields[key] !== false,
+              label,
+              disabled: busy,
+              onChange: (next) => {
+                this.setState({ fields: { ...fields, [key]: next }, error: '', saved: '' });
+                void this.write(['monitor', key], next, next ? '图标已显示' : '图标已隐藏');
+              },
+            }),
+          ),
+        );
+
+        const numberField = (key, label, hint) => h('div', { className: 'dsh-ss-field', key },
+          h('div', { className: 'dsh-ss-label' }, label),
+          h('div', { className: 'dsh-ss-row' },
+            h('input', {
+              className: 'dsh-ss-input dsh-ss-input--narrow',
+              value: fields[key],
+              inputMode: 'numeric',
+              disabled: busy,
+              onChange: (event) => {
+                this.setState({ fields: { ...fields, [key]: event.target.value.replace(/[^0-9]/g, '') }, error: '', saved: '' });
+              },
+            }),
+            h('button', {
+              className: 'dsh-ss-btn',
+              disabled: busy,
+              onClick: () => {
+                const parsed = Number.parseInt(fields[key], 10);
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                  this.setState({ error: `${label}要填正整数` });
+                  return;
+                }
+                void this.write(['monitor', key], parsed);
+              },
+            }, '保存'),
+          ),
+          h('div', { className: 'dsh-ss-hint' }, hint),
+        );
+
+        return [
+          metricSwitch('showNetwork', '网络图标', '显示 ↓下行 ↑上行 的实时速率'),
+          metricSwitch('showCPU', 'CPU 图标', '显示整机 CPU 占用百分比'),
+          metricSwitch('showMemory', '内存图标', '显示已用内存百分比'),
+          numberField('refreshSeconds', '采样间隔（秒）', '菜单栏数字多久刷一次，默认 2 秒，允许 1–60。'),
+          numberField('topCount', '排名条数', '点开图标后列出多少个进程，默认 8，允许 3–30。'),
+          h('div', { className: 'dsh-ss-field', key: 'networkDetailed' },
+            h('label', { className: 'dsh-ss-check' },
+              h('input', {
+                type: 'checkbox',
+                checked: fields.networkDetailed !== false,
+                disabled: busy,
+                onChange: (event) => {
+                  const next = event.target.checked;
+                  this.setState({ fields: { ...fields, networkDetailed: next }, error: '', saved: '' });
+                  void this.write(['monitor', 'networkDetailed'], next);
+                },
+              }),
+              h('span', null, '网络图标同时显示上行'),
+            ),
+            h('div', { className: 'dsh-ss-hint' },
+              '关掉后只显示 ↓ 下行速率，图标更窄；三个图标的数字都在采样间隔后更新一次。'),
+          ),
+        ];
+      }
+
       renderCard(feature, enabled, writable, body) {
         return h('section', {
           key: feature.slug,
@@ -723,7 +819,7 @@ window.__ModuleLoader__.load({
               onChange: (next) => void this.toggleFeature(feature.slug, next),
             }),
           ),
-          enabled ? body : h('div', { className: 'dsh-ss-hint' }, '这个功能关着，打开后才会注册快捷键、占用面板。'),
+          enabled ? body : h('div', { className: 'dsh-ss-hint' }, '这个功能关着，打开后才会注册快捷键、占用面板或占用菜单栏。'),
         );
       }
 
@@ -746,10 +842,11 @@ window.__ModuleLoader__.load({
           this.renderCard(FEATURES[0], values.screenshot.enabled, writable, this.renderScreenshot(values.screenshot.enabled, writable)),
           this.renderCard(FEATURES[1], values.clipboard.enabled, writable, this.renderClipboard(values.clipboard.enabled, writable)),
           this.renderCard(FEATURES[2], values.translate.enabled, writable, this.renderTranslate(values.translate.enabled, writable)),
+          this.renderCard(FEATURES[3], values.monitor.enabled, writable, this.renderMonitor(values.monitor.enabled, writable)),
           this.state.error !== '' ? h('div', { className: 'dsh-ss-err' }, this.state.error) : null,
           this.state.saved !== '' ? h('div', { className: 'dsh-ss-ok' }, this.state.saved) : null,
           h('div', { className: 'dsh-ss-hint' },
-            '三个功能跑在同一个原生进程里：改动立刻生效（装/卸对应功能），不需要重启 DSH。'),
+            '四个功能跑在同一个原生进程里：改动立刻生效（装/卸对应功能），不需要重启 DSH。'),
         );
       }
     }
