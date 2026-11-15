@@ -18,9 +18,14 @@ final class MonitorPanelView: NSView {
     var subtitle: String = "" {
         didSet { needsDisplay = true }
     }
+    /// 固定留这么多行的高度：面板高度不随「这拍有几个进程」变化，
+    /// 否则 NSPopover 每拍都重设 contentSize，视觉上就像面板在往左下漂。
+    var slotCount: Int = 8 {
+        didSet { needsDisplay = true }
+    }
 
     var contentHeight: CGFloat {
-        Self.headerHeight + CGFloat(max(rows.count, 1)) * Self.rowHeight + Self.footerHeight
+        Self.headerHeight + CGFloat(max(slotCount, 1)) * Self.rowHeight + Self.footerHeight
     }
 
     override var isFlipped: Bool { true }
@@ -32,7 +37,7 @@ final class MonitorPanelView: NSView {
         case .memory:
             return MonitorFormat.bytes(row.memoryBytes)
         case .network:
-            return "↓\(MonitorFormat.rate(row.downPerSecond))  ↑\(MonitorFormat.rate(row.upPerSecond))"
+            return "↓\(MonitorFormat.compactRate(row.downPerSecond)) ↑\(MonitorFormat.compactRate(row.upPerSecond))"
         }
     }
 
@@ -72,10 +77,13 @@ final class MonitorPanelView: NSView {
             return
         }
 
-        let nameLeft = Self.padding
-        let nameWidth: CGFloat = 172
-        let barLeft = nameLeft + nameWidth + 10
-        let valueWidth: CGFloat = metric == .network ? 150 : 92
+        let rankLeft = Self.padding
+        let iconSide: CGFloat = 16
+        let iconLeft = rankLeft + 12
+        let nameLeft = iconLeft + iconSide + 6
+        let nameWidth: CGFloat = 150
+        let barLeft = nameLeft + nameWidth + 8
+        let valueWidth: CGFloat = metric == .network ? 96 : 92
 
         // 同名进程（Chrome 的多个 helper）只显示名字会分不清，重复的补上 pid。
         var nameCounts: [String: Int] = [:]
@@ -87,14 +95,24 @@ final class MonitorPanelView: NSView {
         for (index, row) in rows.enumerated() {
             if index % 2 == 1 {
                 NSColor.labelColor.withAlphaComponent(0.035).setFill()
-                NSRect(x: 8, y: y, width: width - 16, height: Self.rowHeight).fill()
+                NSRect(x: 6, y: y, width: width - 12, height: Self.rowHeight).fill()
             }
 
             let rank = "\(index + 1)"
             (rank as NSString).draw(
-                at: NSPoint(x: nameLeft, y: y + 6),
+                at: NSPoint(x: rankLeft, y: y + 6),
                 withAttributes: captionAttributes
             )
+
+            // 进程归属的 App 图标；拿不到就留白，名字列位置保持不变。
+            if let icon = row.icon {
+                icon.draw(
+                    in: NSRect(x: iconLeft, y: y + (Self.rowHeight - iconSide) / 2, width: iconSide, height: iconSide),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1
+                )
+            }
 
             let nameParagraph = NSMutableParagraphStyle()
             // 中间截断：`DeepSeek Harness Helper (Renderer)` 这类名字要留住尾巴才有区分度。
@@ -108,7 +126,7 @@ final class MonitorPanelView: NSView {
                 ? "\(row.name) ·\(row.pid)"
                 : row.name
             (displayName as NSString).draw(
-                in: NSRect(x: nameLeft + 18, y: y + 4, width: nameWidth - 18, height: 16),
+                in: NSRect(x: nameLeft, y: y + 4, width: nameWidth, height: 16),
                 withAttributes: nameAttributes
             )
 
@@ -169,6 +187,23 @@ final class MonitorPanelController {
 
     var isVisible: Bool { popover.isShown }
 
+    /// 面板窗口在屏幕上的位置（自测用：盯「会不会自己往左下漂」）。
+    func frame() -> [String: Double] {
+        guard let window = view.window else { return [:] }
+        let frame = window.frame
+        return [
+            "x": Double(frame.origin.x),
+            "y": Double(frame.origin.y),
+            "width": Double(frame.size.width),
+            "height": Double(frame.size.height),
+        ]
+    }
+
+    /// 面板高度按「最多显示多少行」定死，行数变化不再改变面板尺寸。
+    func setSlotCount(_ count: Int) {
+        view.slotCount = max(1, count)
+    }
+
     func show(metric: MonitorMetric, from button: NSStatusBarButton, rows: [MonitorRow], subtitle: String) {
         visibleMetric = metric
         view.metric = metric
@@ -209,6 +244,7 @@ final class MonitorPanelController {
             width: MonitorPanelView.width,
             height: view.contentHeight + Self.popoverSlack
         )
+        guard popover.contentSize != size else { return }
         view.frame = NSRect(origin: .zero, size: size)
         popover.contentSize = size
     }

@@ -57,11 +57,42 @@ enum MonitorSelfTest {
                 && MonitorFormat.compactRate(0.4) == "0B",
             "\(MonitorFormat.compactRate(1536)) / \(MonitorFormat.compactRate(512)) / \(MonitorFormat.compactRate(12_582_912))"
         )
+        // 菜单栏两行：上一行标签 / 箭头，下一行数字。
+        var lineTotals = MonitorTotals()
+        lineTotals.cpuPercent = 26.2
+        lineTotals.memoryUsed = 6_710_886_579
+        lineTotals.memoryTotal = 8_589_934_592
+        lineTotals.downPerSecond = 1536
+        lineTotals.upPerSecond = 1024
+        let cpuLines = MonitorFormat.menuLines(metric: .cpu, totals: lineTotals, detailed: true)
         record(
-            "menu-network-title",
-            MonitorFormat.menuNetworkTitle(down: 1536, up: 1024, detailed: true) == "↓1.5K↑1.0K"
-                && MonitorFormat.menuNetworkTitle(down: 1536, up: 1024, detailed: false) == "↓1.5K",
-            MonitorFormat.menuNetworkTitle(down: 1536, up: 1024, detailed: true)
+            "menu-lines-cpu",
+            cpuLines.top == "CPU" && cpuLines.bottom == "26%",
+            "\(cpuLines.top) / \(cpuLines.bottom)"
+        )
+        let memoryLines = MonitorFormat.menuLines(metric: .memory, totals: lineTotals, detailed: true)
+        record(
+            "menu-lines-memory",
+            memoryLines.top == "MEM" && memoryLines.bottom == "78%",
+            "\(memoryLines.top) / \(memoryLines.bottom)"
+        )
+        let networkLines = MonitorFormat.menuLines(metric: .network, totals: lineTotals, detailed: true)
+        record(
+            "menu-lines-network",
+            networkLines.top == "↑1.0K" && networkLines.bottom == "↓1.5K",
+            "\(networkLines.top) / \(networkLines.bottom)"
+        )
+        let networkDownOnly = MonitorFormat.menuLines(metric: .network, totals: lineTotals, detailed: false)
+        record(
+            "menu-lines-network-down-only",
+            networkDownOnly.top.isEmpty && networkDownOnly.bottom == "↓1.5K",
+            "top '\(networkDownOnly.top)' bottom '\(networkDownOnly.bottom)'"
+        )
+        let widthSample = MonitorFormat.menuWidthSample(metric: .cpu, detailed: true)
+        record(
+            "menu-width-sample",
+            widthSample.top == "CPU" && widthSample.bottom == "100%",
+            "\(widthSample.top) / \(widthSample.bottom)"
         )
         record(
             "title-cpu",
@@ -262,6 +293,70 @@ enum MonitorSelfTest {
             networkRows.isEmpty || networkRows.allSatisfy { $0.load(for: .network) > 0 },
             networkDetail
         )
+
+        // MARK: App 图标
+
+        let ownIcon = MonitorAppIcon.shared.icon(for: getpid())
+        record(
+            "app-icon-self",
+            ownIcon != nil && (ownIcon?.size.width ?? 0) > 0,
+            ownIcon.map { "icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil"
+        )
+        let launchdIcon = MonitorAppIcon.shared.icon(for: 1)
+        record(
+            "app-icon-launchd",
+            launchdIcon != nil,
+            launchdIcon.map { "icon \(Int($0.size.width))x\(Int($0.size.height))" } ?? "nil"
+        )
+        record(
+            "app-icon-cached",
+            MonitorAppIcon.shared.icon(for: getpid()) === ownIcon,
+            "same instance on second lookup"
+        )
+        let decorated = processRows.map { row -> MonitorRow in
+            var copy = row
+            copy.icon = MonitorAppIcon.shared.icon(for: row.pid)
+            return copy
+        }
+        record(
+            "app-icon-rows",
+            decorated.contains { $0.icon != nil },
+            "\(decorated.filter { $0.icon != nil }.count)/\(decorated.count) rows have icon"
+        )
+
+        // MARK: 面板排版
+
+        let layout = MonitorPanelView()
+        layout.slotCount = 8
+        layout.rows = Array(processRows.prefix(1))
+        let heightWithOneRow = layout.contentHeight
+        layout.rows = Array(processRows.prefix(8))
+        let heightWithEightRows = layout.contentHeight
+        record(
+            "panel-fixed-height",
+            heightWithOneRow == heightWithEightRows && heightWithOneRow > 200,
+            "\(heightWithOneRow) vs \(heightWithEightRows)"
+        )
+
+        // MARK: 菜单栏渲染图（文档用）
+
+        if let strip = MonitorMenuBar.stripImage(totals: lineTotals, settings: MonitorSettings()) {
+            let path = directory.appendingPathComponent("monitor-menubar.png")
+            let png = strip.tiffRepresentation
+                .flatMap { NSBitmapImageRep(data: $0) }?
+                .representation(using: .png, properties: [:])
+            if let data = png {
+                try? data.write(to: path)
+                artifacts.append(path.path)
+            }
+            record(
+                "menubar-strip",
+                strip.size.width > 60 && strip.size.height > 15,
+                "\(Int(strip.size.width))x\(Int(strip.size.height)) at \(path.lastPathComponent)"
+            )
+        } else {
+            record("menubar-strip", false, "no image")
+        }
 
         // MARK: 面板渲染
 

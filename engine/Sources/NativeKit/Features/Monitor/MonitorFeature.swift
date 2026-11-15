@@ -37,6 +37,7 @@ final class MonitorFeature: NSObject, NativeFeature {
             self?.togglePanel(metric: metric, button: button)
         }
         menuBar = bar
+        panel.setSlotCount(settings.topCount)
         scheduleTimer()
         tick()
         Log.info("ready refresh=\(settings.refreshSeconds)s top=\(settings.topCount) "
@@ -65,6 +66,8 @@ final class MonitorFeature: NSObject, NativeFeature {
         payload["visibleMetric"] = panel.visibleMetric?.rawValue ?? ""
         payload["metrics"] = enabledMetrics().map(\.rawValue)
         payload["itemFrames"] = menuBar?.frames() ?? [:]
+        payload["itemLines"] = menuBar?.lines() ?? [:]
+        payload["panelFrame"] = panel.frame()
         return payload
     }
 
@@ -98,11 +101,22 @@ final class MonitorFeature: NSObject, NativeFeature {
         refreshPanel(metric: metric)
     }
 
+    /// 给每行补上「所属 App 的图标」。只在主线程做（NSRunningApplication 与
+    /// NSWorkspace 的图标读取都会碰 AppKit 缓存），采样本身仍然可以在后台。
+    private func decorated(_ rows: [MonitorRow]) -> [MonitorRow] {
+        guard !rows.isEmpty else { return rows }
+        var result = rows
+        for index in result.indices {
+            result[index].icon = MonitorAppIcon.shared.icon(for: result[index].pid)
+        }
+        return result
+    }
+
     private func refreshPanel(metric: MonitorMetric) {
         switch metric {
         case .cpu, .memory:
             let rows = sampler.processRows(metric: metric, limit: settings.topCount)
-            panel.apply(rows: rows, subtitle: subtitle(for: metric))
+            panel.apply(rows: decorated(rows), subtitle: subtitle(for: metric))
         case .network:
             guard !networkRefreshInFlight else { return }
             networkRefreshInFlight = true
@@ -113,7 +127,7 @@ final class MonitorFeature: NSObject, NativeFeature {
                 DispatchQueue.main.async {
                     self.networkRefreshInFlight = false
                     guard self.panel.isVisible, self.panel.visibleMetric == .network else { return }
-                    self.panel.apply(rows: rows, subtitle: self.subtitle(for: .network))
+                    self.panel.apply(rows: self.decorated(rows), subtitle: self.subtitle(for: .network))
                 }
             }
         }
@@ -145,7 +159,7 @@ final class MonitorFeature: NSObject, NativeFeature {
         case .network:
             rows = []
         }
-        panel.show(metric: metric, from: button, rows: rows, subtitle: subtitle(for: metric))
+        panel.show(metric: metric, from: button, rows: decorated(rows), subtitle: subtitle(for: metric))
         if metric == .network {
             refreshPanel(metric: .network)
         }
@@ -157,6 +171,7 @@ final class MonitorFeature: NSObject, NativeFeature {
         settings = settings.merging(request)
         settings.save()
         menuBar?.apply(settings: settings)
+        panel.setSlotCount(settings.topCount)
         scheduleTimer()
         tick()
         var reply = status()
@@ -172,6 +187,7 @@ final class MonitorFeature: NSObject, NativeFeature {
             settings = settings.merging(request)
             settings.save()
             menuBar?.apply(settings: settings)
+            panel.setSlotCount(settings.topCount)
             scheduleTimer()
             tick()
             var reply = status()
@@ -189,7 +205,12 @@ final class MonitorFeature: NSObject, NativeFeature {
             } else {
                 rows = sampler.processRows(metric: metric, limit: limit)
             }
-            return ["ok": true, "metric": metric.rawValue, "rows": rowsPayload(rows, metric: metric)]
+            return [
+                "ok": true,
+                "metric": metric.rawValue,
+                "rows": rowsPayload(rows, metric: metric),
+                "icons": decorated(rows).map { $0.icon != nil },
+            ]
         case "show":
             let metric = MonitorMetric(rawValue: request["metric"] as? String ?? "") ?? .cpu
             guard let button = menuBar?.button(for: metric) else {
@@ -209,7 +230,7 @@ final class MonitorFeature: NSObject, NativeFeature {
                 : sampler.processRows(metric: metric, limit: settings.topCount)
             guard let image = panel.snapshotImage(
                 metric: metric,
-                rows: rows,
+                rows: decorated(rows),
                 subtitle: subtitle(for: metric)
             ) else {
                 return ["ok": false, "error": "snapshot failed"]

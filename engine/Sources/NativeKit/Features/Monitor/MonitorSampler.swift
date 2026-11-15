@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 
@@ -53,6 +54,8 @@ struct MonitorTotals {
 struct MonitorRow {
     var pid: pid_t
     var name: String
+    /// 进程归属的 App 图标（面板每行左侧显示）；纯命令行/系统守护进程退化成可执行文件图标。
+    var icon: NSImage?
     var cpuPercent: Double = 0
     var memoryBytes: UInt64 = 0
     var downPerSecond: Double = 0
@@ -130,6 +133,35 @@ enum MonitorFormat {
         let text = "↓" + compactRate(down)
         guard detailed else { return text }
         return text + "↑" + compactRate(up)
+    }
+
+    /// 菜单栏的两行文本：上一行是标签（`CPU` / `MEM`）或方向箭头，下一行是数字。
+    /// 网络只留箭头，上行在上、下行在下（用户要的排布）。
+    static func menuLines(
+        metric: MonitorMetric,
+        totals: MonitorTotals,
+        detailed: Bool
+    ) -> (top: String, bottom: String) {
+        switch metric {
+        case .cpu:
+            return ("CPU", percent(totals.cpuPercent))
+        case .memory:
+            return ("MEM", percent(totals.memoryPercent))
+        case .network:
+            let down = "↓" + compactRate(totals.downPerSecond)
+            guard detailed else { return ("", down) }
+            return ("↑" + compactRate(totals.upPerSecond), down)
+        }
+    }
+
+    /// 菜单栏两行里第二行（数字）的最大宽度样本，用来把图标宽度钉死、避免每次刷新抖动。
+    static func menuWidthSample(metric: MonitorMetric, detailed: Bool) -> (top: String, bottom: String) {
+        switch metric {
+        case .cpu, .memory:
+            return (metric == .cpu ? "CPU" : "MEM", "100%")
+        case .network:
+            return detailed ? ("↑999M", "↓999M") : ("", "↓999M")
+        }
     }
 
     static func cpuTitle(_ value: Double) -> String {
@@ -513,5 +545,49 @@ final class MonitorSampler {
         let data = collected as Data
         lock.unlock()
         return String(data: data, encoding: .utf8)
+    }
+}
+
+
+/// 进程图标：优先拿「所属 App」的图标（`NSRunningApplication`，Chrome 的各个 helper
+/// 会显示 Chrome 的图标），拿不到再退化成可执行文件在访达里的图标。
+final class MonitorAppIcon {
+    static let shared = MonitorAppIcon()
+
+    private let lock = NSLock()
+    private var cache: [pid_t: NSImage] = [:]
+    private var missing: Set<pid_t> = []
+    private var resolvedAt = Date()
+
+    func icon(for pid: pid_t) -> NSImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        if Date().timeIntervalSince(resolvedAt) > 300 {
+            cache.removeAll()
+            missing.removeAll()
+            resolvedAt = Date()
+        }
+        if let cached = cache[pid] { return cached }
+        if missing.contains(pid) { return nil }
+        if let resolved = Self.resolve(pid: pid) {
+            cache[pid] = resolved
+            return resolved
+        }
+        missing.insert(pid)
+        return nil
+    }
+
+    private static func resolve(pid: pid_t) -> NSImage? {
+        if let application = NSRunningApplication(processIdentifier: pid),
+           let icon = application.icon {
+            return icon
+        }
+        // PROC_PIDPATHINFO_MAXSIZE 是宏（Swift 里不可用），按 4 * MAXPATHLEN 自己铺缓冲。
+        var path = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        let executable = String(cString: path)
+        guard !executable.isEmpty else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: executable)
+        return icon.size.width > 0 ? icon : nil
     }
 }
