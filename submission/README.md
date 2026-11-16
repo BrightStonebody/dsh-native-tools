@@ -35,3 +35,10 @@
 
 - **只有 GitHub 仓库**：已经能被市场搜到（`plugins.json` 收 GitHub-only 条目），但这个仓库得先被列表仓收录才有条目。
 - **另外发布到 npm**：`index.json` 只收已发 npm 的包，且靠 `probe-npm.mjs` 采集——条件是 registry 里该包的 `repository` 字段指回插件仓库。本包刻意保留 `private: true`（避免误发 npm），需要走这条轨道时再去掉。
+
+## 进度
+
+- [x] 条目 YAML 写好（`BrightStonebody__dsh-native-tools.yml`，`category: tools`）
+- [x] fork 分支 `add-dsh-native-tools` 推好（含 2.1.5 之前的描述，随后补了系统监控那句话）
+- [x] 收录 PR 已开：https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15869（CI `Submission gate` / `check` 均 pass）
+- [ ] 等维护者合并
