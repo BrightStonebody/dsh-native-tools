@@ -81,7 +81,7 @@ $NODE host-test/live-toggle.mjs    # maxItems 热生效、关掉后进程退出
 $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、改热键、同进程换功能
 ```
 
-当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 57 项，全过；helper md5 `cc21d5547f3c91620f3e8fd5e5982824`，`lipo -archs` = `x86_64 arm64`。
+当前基线：screenshot 20 项、clipboard 55 项、translate 11 项、monitor 58 项，全过；helper md5 `cc21d5547f3c91620f3e8fd5e5982824`，`lipo -archs` = `x86_64 arm64`。
 
 安装（本机）：`plugin_manager install_bundle`，target 用 `link:/Users/a1/Documents/deepseek-harness/default-workspace/dsh-native-tools`。装好后 entryId 是 `include:dsh-native-tools`（`list_plugins` 要 offset=200 才看得到，总数 238）。
 
@@ -133,8 +133,8 @@ $NODE host-test/live-switch.mjs    # 三段全关不拉进程、按需 spawn、�
    - 已用隔离环境验过：改 `maxItems` 热生效、改热键热生效（同 pid）、关掉唯一功能 ~150 ms 内退出、全关状态下开功能会自己 spawn、关一个开一个进程不换（翻译通道随之起来）。两个脚本已进仓库：`host-test/live-toggle.mjs`、`host-test/live-switch.mjs`，用法见 `host-test/README.md`。
 2. ~~三个旧目录~~ **已删（2026-11-15）**：`dsh-screenshot` / `dsh-clipboard` / `dsh-translate`（含 `helper.retired/`、旧 engine、旧 dist）整体删除；唯二不重复的东西先搬进 `dsh-native-tools/design/`（`icon-1024.png` + `icon.iconset`，图标源文件）。工作区根目录残留的旧独立包 `dsh-clipboard-macos-universal.zip`（`dsh-clipboard/` 112 个文件，含 `__MACOSX/` 垃圾）同日一并删除——它是合并前那个单功能包的构建产物，功能已被 `dsh-native-tools` 覆盖。旧目录里没有 dsh-native-tools 缺的东西：docs 图片更旧、engine 源码与 locale 都是被合并后的副本。
 3. **待优化（可选）**：单进程 RSS ≈ 45 MB，合并前三个进程合计 ≈ 26 MB —— 省的是重复代码与进程数，不是内存。若在意，可把 OCR 模型改成按需热身。
-4. **待提交收录 PR（2026-11-16 16:00 之后）**：列表仓库 CI 的硬门槛是「仓库创建满 1 天」，`BrightStonebody/dsh-native-tools` 创建于 2026-11-15 16:00:45 (+08)，所以 11-16 16:00 之后才能提。分支**已经推好在 fork 上**：`BrightStonebody/awesome-dsh-plugin` 的 `add-dsh-native-tools`（commit `e8dcadf`，只加 `data/plugins/BrightStonebody__dsh-native-tools.yml`）。到点后跑 `bash …/default-workspace/submit-listing.sh`，或者手工 `gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin --head BrightStonebody:add-dsh-native-tools`。注意 `gh` 需要走代理 `HTTPS_PROXY=http://127.0.0.1:7897`（直连 github.com:443 超时），`git push` 走 SSH 不需要。
-5. ~~版本号~~ **2.1.5（2026-11-16）**：`dist/dsh-native-tools-2.1.5.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个控件 + 点开看进程排名；坑 19–22）→ **2.1.1 系统监控改版**（2.1.2 又收紧了图标规则：只给真归属 App 的进程画图标）：菜单栏改成「上标签 / 下数字」两行、网络只留 ↑↓ 上下叠加、字号加大；面板每行加进程所属 App 的图标；修掉「面板过一会儿往左下漂」（按钮宽度与面板高度都钉死，见坑 19/20）。**2.1.3 改回 `variableLength` 让间距对齐系统图标**（墨迹间隙 23.0pt vs 19–24.5pt），**2.1.4 再把画布宽度按最坏样本钉住**、**2.1.5 面板可关闭**（全局鼠标监听 + ✕，坑 23）（网速文案在 0B/512B/1024B/999M 之间跳，实测三项宽度恒为 53/53/68pt），防漂移靠面板固定锚点（坑 19/20）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 57 全过。
+4. **收录 PR 已提交（2026-11-16 17:24 +08）**：https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15869 —— 分支 `BrightStonebody:add-dsh-native-tools`（fork `BrightStonebody/awesome-dsh-plugin`），只改 `data/plugins/BrightStonebody__dsh-native-tools.yml`。CI 两项都过了（`Submission gate` pass；`check` pass，18m52s）。等维护者合并即可，**不要再改这个 PR**（除非 CI 报错）；条目内容要跟版本同步时，下一个 PR 里改。
+5. ~~版本号~~ **2.1.5（2026-11-16）**：`dist/dsh-native-tools-2.1.5.zip`，打包入口 `pack.sh`；`dist/` 只留最新那一个包。2.0.2 翻译通道改下拉框（坑 17）→ 2.0.3 截图工具条改成「加红框 / 识别文字 / 保存 / 取消 / 复制」→ 2.0.4 剪贴板底板改回真毛玻璃（坑 18）→ **2.1.0 新增第四个功能「系统监控」**（`Features/Monitor/`：菜单栏三个控件 + 点开看进程排名；坑 19–22）→ **2.1.1 系统监控改版**（2.1.2 又收紧了图标规则：只给真归属 App 的进程画图标）：菜单栏改成「上标签 / 下数字」两行、网络只留 ↑↓ 上下叠加、字号加大；面板每行加进程所属 App 的图标；修掉「面板过一会儿往左下漂」（按钮宽度与面板高度都钉死，见坑 19/20）。**2.1.3 改回 `variableLength` 让间距对齐系统图标**（墨迹间隙 23.0pt vs 19–24.5pt），**2.1.4 再把画布宽度按最坏样本钉住**、**2.1.5 面板可关闭**（全局鼠标监听 + ✕，坑 23）（网速文案在 0B/512B/1024B/999M 之间跳，实测三项宽度恒为 53/53/68pt），防漂移靠面板固定锚点（坑 19/20）。每版都按「解压 → `./install.sh` → 各段 self-test」验过，当前 screenshot 20 / clipboard 55 / translate 11 / monitor 58 全过。
 
 ## 验证一次是否还健康
 
