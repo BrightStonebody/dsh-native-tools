@@ -26,7 +26,58 @@ enum ClipboardSelfTest {
         testPasteboard(in: directory)
         testMonitorDecoding()
         testPanel(in: directory)
+        testPanelInitialSelection(in: directory)
         return finish()
+    }
+
+    /// 面板打开时应该停在顶部、选中第一条 —— 条数多的时候尤其明显。
+    /// 曾经的问题是：选中行跨 hide/show 保留，用户上次停在最后一条，下次打开就直接跳到
+    /// 底部并选中最后一条（2026-11-21 反馈）。
+    private static func testPanelInitialSelection(in directory: URL) {
+        let store = ClipboardStore(directory: directory.appendingPathComponent("panel-scroll-store"))
+        store.setLimits(maxItems: 500, retentionDays: 0)
+        let base = Date()
+        for i in 0..<60 {
+            store.addText("样本文本 \(i)", source: ClipboardSource(name: "Notes"), at: base.addingTimeInterval(Double(i)))
+        }
+        let panel = ClipboardPanelController(store: store)
+        let firstID = store.items.first?.id ?? ""
+
+        panel.show(previousApp: nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let opened = panel.debugState()
+        record(
+            "panel-initial-selection",
+            (opened["selectedRow"] as? Int) == 0 && (opened["selectedID"] as? String) == firstID,
+            "row \(opened["selectedRow"] ?? "nil") id \(opened["selectedID"] ?? "nil")"
+        )
+        record(
+            "panel-initial-scroll-top",
+            (opened["scrollY"] as? Double) == 0,
+            "scrollY \(opened["scrollY"] ?? "nil") doc \(opened["docHeight"] ?? "nil")"
+        )
+
+        // 把选中行挪到最末尾，模拟用户上次停在最后一条，再关掉重开。
+        if let last = store.items.last {
+            _ = panel.select(id: last.id)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        }
+        let parked = panel.debugState()
+        record(
+            "panel-sticky-before-hide",
+            (parked["selectedRow"] as? Int) == (parked["rows"] as? Int).map { $0 - 1 },
+            "row \(parked["selectedRow"] ?? "nil") scrollY \(parked["scrollY"] ?? "nil")"
+        )
+        panel.hide()
+        panel.show(previousApp: nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let reopened = panel.debugState()
+        record(
+            "panel-reopen-resets-to-top",
+            (reopened["selectedRow"] as? Int) == 0 && (reopened["scrollY"] as? Double) == 0,
+            "row \(reopened["selectedRow"] ?? "nil") scrollY \(reopened["scrollY"] ?? "nil")"
+        )
+        panel.hide()
     }
 
     // MARK: - Suites

@@ -122,7 +122,7 @@ final class ClipboardPanelController: NSObject, NSTableViewDataSource, NSTableVi
         self.previousApp = previousApp
         root.searchField.stringValue = ""
         store.prune()
-        reload(selecting: nil)
+        reload(selecting: nil, resetSelection: true)
         updateHotkeyLabel(hotkeyLabel)
 
         if !root.searchField.isHidden {
@@ -175,8 +175,13 @@ final class ClipboardPanelController: NSObject, NSTableViewDataSource, NSTableVi
 
     // MARK: - Data
 
-    func reload(selecting id: String? = nil) {
-        let previousID = id ?? selectedItem?.id
+    /// 重新加载列表。
+    ///
+    /// `resetSelection` 为真时忽略上一次的选中行，直接选中第一条 —— 面板每次打开都走这条路：
+    /// 用户按热键是想看「最近复制的几条」，所以永远从第一条开始，而不是回到上次停留的那一行
+    /// （2026-11-21 反馈：条数多的时候一打开就停在底部并选中最后一条）。
+    func reload(selecting id: String? = nil, resetSelection: Bool = false) {
+        let previousID = resetSelection ? id : (id ?? selectedItem?.id)
         filtered = store.search(root.searchField.stringValue)
         root.tableView.reloadData()
 
@@ -186,6 +191,9 @@ final class ClipboardPanelController: NSObject, NSTableViewDataSource, NSTableVi
             select(row: 0)
         } else {
             root.tableView.deselectAll(nil)
+        }
+        if resetSelection {
+            scrollToTop()
         }
         updateCount()
         updateEmptyState()
@@ -212,6 +220,14 @@ final class ClipboardPanelController: NSObject, NSTableViewDataSource, NSTableVi
         guard row >= 0, row < filtered.count else { return }
         root.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         root.tableView.scrollRowToVisible(row)
+    }
+
+    /// 把列表滚回顶部。`scrollRowToVisible(0)` 在窗口还没上屏时可能算不出行矩形，
+    /// 这里再直接把 clip view 的原点归零并通知滚动视图。
+    private func scrollToTop() {
+        let clip = root.listScroll.contentView
+        clip.scroll(to: NSPoint(x: 0, y: 0))
+        root.listScroll.reflectScrolledClipView(clip)
     }
 
     private func updateCount() {
@@ -318,6 +334,23 @@ final class ClipboardPanelController: NSObject, NSTableViewDataSource, NSTableVi
             break
         }
         return event
+    }
+
+    /// 自测用：当前选中行与滚动位置，用来验证「打开时应该停在顶部并选中第一条」。
+    func debugState() -> [String: Any] {
+        let table = root.tableView
+        let clip = root.listScroll.contentView
+        return [
+            "rows": filtered.count,
+            "selectedRow": table.selectedRow,
+            "selectedID": selectedItem?.id ?? "",
+            "firstID": filtered.first?.id ?? "",
+            "scrollY": Double(clip.bounds.origin.y),
+            "docHeight": Double(table.frame.height),
+            "visibleHeight": Double(clip.bounds.height),
+            "tableFlipped": table.isFlipped,
+            "clipFlipped": clip.isFlipped,
+        ]
     }
 
     private func moveSelection(by delta: Int) {
